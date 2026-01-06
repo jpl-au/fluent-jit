@@ -63,4 +63,3 @@ func dynamic(n node.Node) bool {
 	// Recursively check children
 	return slices.ContainsFunc(n.Nodes(), dynamic)
 }
-

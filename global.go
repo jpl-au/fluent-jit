@@ -25,7 +25,7 @@ var (
 // without manually calling ResetCompile(id) to free memory.
 func Compile(id string, n node.Node, w ...io.Writer) []byte {
 	val, _ := compilers.LoadOrStore(id, NewCompiler())
-	compiler := val.(*Compiler)
+	compiler := val.(*Compiler) //nolint:forcetypeassert // type guaranteed by LoadOrStore
 	return compiler.Render(n, w...)
 }
 
@@ -37,7 +37,7 @@ func Compile(id string, n node.Node, w ...io.Writer) []byte {
 // without manually calling ResetTune(id) to free memory.
 func Tune(id string, n node.Node, w ...io.Writer) []byte {
 	val, _ := tuners.LoadOrStore(id, NewTuner())
-	tuner := val.(*Tuner)
+	tuner := val.(*Tuner) //nolint:forcetypeassert // type guaranteed by LoadOrStore
 	return tuner.Tune(n).Render(w...)
 }
 
@@ -93,11 +93,11 @@ func Flatten(id string, n node.Node, w ...io.Writer) []byte {
 		val = bytes
 	}
 
-	bytes := val.([]byte)
+	bytes := val.([]byte) //nolint:forcetypeassert // type guaranteed by Store above
 
 	// Handle output destination
 	if len(w) > 0 && w[0] != nil {
-		w[0].Write(bytes)
+		_, _ = w[0].Write(bytes)
 		return nil
 	}
 	return bytes

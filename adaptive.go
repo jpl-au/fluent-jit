@@ -8,13 +8,13 @@ import (
 // AdaptiveSizer implements adaptive buffer sizing with minimal lock contention.
 // It operates in two phases:
 //
-// 1. Sampling Phase: Collects render size samples to establish optimal buffer size
-// 2. Baseline Phase: Uses established size with variance monitoring for pattern changes
+// 1. Sampling Phase: Collects render size samples to establish optimal buffer size.
+// 2. Baseline Phase: Uses established size with variance monitoring for pattern changes.
 //
 // Performance characteristics:
-// - Hot path (GetBaseline): lock-free atomic read - called on every render
-// - Warm path (variance checks): occasional mutex for pattern change detection
-// - Cold path (sampling): mutex for statistical calculations during startup
+// - Hot path (GetBaseline): lock-free atomic read - called on every render.
+// - Warm path (variance checks): occasional mutex for pattern change detection.
+// - Cold path (sampling): mutex for statistical calculations during startup.
 type AdaptiveSizer struct {
 	// Atomic fields - frequently read, lock-free access
 	baseline int64 // current optimal buffer size (atomic)
@@ -31,10 +31,10 @@ type AdaptiveSizer struct {
 
 // NewAdaptiveSizer creates a sizer with sensible defaults.
 // Default configuration:
-// - max: 5 samples (quick baseline establishment)
-// - variance: 20% (detects significant size changes)
-// - growthFactor: 115% (prevents buffer resizing on small variations)
-// - active: true (starts in sampling phase)
+// - max: 5 samples (quick baseline establishment).
+// - variance: 20% (detects significant size changes).
+// - growthFactor: 115% (prevents buffer resizing on small variations).
+// - active: true (starts in sampling phase).
 func NewAdaptiveSizer() *AdaptiveSizer {
 	as := &AdaptiveSizer{
 		max:          5,
@@ -49,9 +49,9 @@ func NewAdaptiveSizer() *AdaptiveSizer {
 // This forces the sizer to restart sampling with new parameters.
 //
 // Parameters:
-// - max: number of samples to collect before establishing baseline
-// - variance: threshold percentage for detecting significant size changes (e.g. 20)
-// - growthFactor: multiplier percentage applied to average size (e.g. 115)
+// - max: number of samples to collect before establishing baseline.
+// - variance: threshold percentage for detecting significant size changes (e.g. 20).
+// - growthFactor: multiplier percentage applied to average size (e.g. 115).
 func (as *AdaptiveSizer) Configure(max int, variance, growthFactor int) {
 	as.mu.Lock()
 	defer as.mu.Unlock()

@@ -9,7 +9,7 @@ import (
 )
 
 // Tuner provides dynamic adaptive buffer sizing for changing content patterns.
-// Unlike the compiler which pre-optimizes static content, the tuner adapts
+// Unlike the compiler which pre-optimises static content, the tuner adapts
 // to content that changes over time by continuously monitoring render sizes.
 //
 // The tuner uses shared AdaptiveSizer logic with two-phase operation:
@@ -18,17 +18,17 @@ import (
 //
 // This approach is ideal for templates with dynamic content that varies significantly.
 type Tuner struct {
-	rootNode node.Node       // current template to render
-	sizer    *AdaptiveSizer  // shared adaptive sizing logic
-	mu       sync.RWMutex    // protects rootNode access during concurrent usage
-	cfg      *TunerCfg       // optional custom configuration
+	rootNode node.Node      // current template to render
+	sizer    *AdaptiveSizer // shared adaptive sizing logic
+	mu       sync.RWMutex   // protects rootNode access during concurrent usage
+	cfg      *TunerCfg      // optional custom configuration
 }
 
 // NewTuner creates a tuner with adaptive sizing defaults.
 // Uses shared AdaptiveSizer with standard configuration:
-// - 5 samples for baseline establishment
-// - 20% variance threshold for pattern change detection
-// - 115% growth factor to prevent tight buffer fits
+// - 5 samples for baseline establishment.
+// - 20% variance threshold for pattern change detection.
+// - 115% growth factor to prevent tight buffer fits.
 func NewTuner(cfg ...*TunerCfg) *Tuner {
 	jt := &Tuner{
 		sizer: NewAdaptiveSizer(),
@@ -43,13 +43,13 @@ func NewTuner(cfg ...*TunerCfg) *Tuner {
 	return jt
 }
 
-// Configure customizes the adaptive sizing parameters and resets statistics.
+// Configure customises the adaptive sizing parameters and resets statistics.
 // This forces the tuner to restart sampling with new parameters.
 //
 // Parameters:
-// - max: number of samples to collect before establishing baseline
-// - variance: threshold percentage for detecting significant size changes (e.g. 20)
-// - growthFactor: multiplier percentage applied to average size (e.g. 115)
+// - max: number of samples to collect before establishing baseline.
+// - variance: threshold percentage for detecting significant size changes (e.g. 20).
+// - growthFactor: multiplier percentage applied to average size (e.g. 115).
 func (jt *Tuner) Configure(max int, variance, growthFactor int) *Tuner {
 	jt.cfg = &TunerCfg{
 		Max:          max,
@@ -70,8 +70,8 @@ func (jt *Tuner) Tune(root node.Node) *Tuner {
 }
 
 // Render executes the configured template with adaptive buffer sizing.
-// This method automatically optimizes buffer allocation based on historical render sizes
-// and continuously updates statistics for future optimization.
+// This method automatically optimises buffer allocation based on historical render sizes
+// and continuously updates statistics for future optimisation.
 func (jt *Tuner) Render(w ...io.Writer) []byte {
 	var writer io.Writer
 	if len(w) > 0 {
@@ -87,11 +87,11 @@ func (jt *Tuner) Render(w ...io.Writer) []byte {
 }
 
 // tune performs the core adaptive rendering logic.
-// This method implements dynamic buffer optimization:
-// 1. Uses adaptive sizing to pre-allocate optimal buffer size
-// 2. Renders the template directly into the sized buffer
-// 3. Updates statistics with actual render size for continuous optimization
-// 4. Automatically adapts to changing content patterns via variance detection
+// This method implements dynamic buffer optimisation:
+// 1. Uses adaptive sizing to pre-allocate optimal buffer size.
+// 2. Renders the template directly into the sized buffer.
+// 3. Updates statistics with actual render size for continuous optimisation.
+// 4. Automatically adapts to changing content patterns via variance detection.
 func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
 	// Get adaptively-sized buffer (lock-free atomic read)
 	buf := fluent.NewBuffer(jt.sizer.GetBaseline())
@@ -100,13 +100,13 @@ func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
 	// Execute template rendering
 	n.RenderBuilder(buf)
 
-	// Continuously update statistics for adaptive optimization
+	// Continuously update statistics for adaptive optimisation
 	// Unlike compiler, tuner always updates since content patterns can change
 	jt.sizer.UpdateStats(buf.Len())
 
 	// Handle output destination
 	if w != nil {
-		buf.WriteTo(w)
+		_, _ = buf.WriteTo(w)
 		return nil
 	}
 	return buf.Bytes()

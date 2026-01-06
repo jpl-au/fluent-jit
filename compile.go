@@ -55,7 +55,7 @@ type ExecutionPlan struct {
 	Elements []CompiledElement // Linear sequence of rendering operations
 }
 
-// Compiler builds immutable execution plans with optimized buffer sizing.
+// Compiler builds immutable execution plans with optimised buffer sizing.
 // It separates static and dynamic content during compilation, then uses
 // conditional statistical updates to maintain optimal buffer allocation.
 type Compiler struct {
@@ -132,7 +132,7 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 	}
 
 	// Conditional update: only adjust sizing when prediction is significantly wrong
-	// This reduces overhead by ~95% after size patterns stabilize
+	// This reduces overhead by ~95% after size patterns stabilise
 	actualSize := buf.Len()
 	if jc.shouldUpdateStats(predictedSize, actualSize) {
 		jc.sizer.UpdateStats(actualSize)
@@ -140,7 +140,7 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 
 	// Handle output destination
 	if len(w) > 0 && w[0] != nil {
-		buf.WriteTo(w[0])
+		_, _ = buf.WriteTo(w[0])
 		return nil
 	}
 	return buf.Bytes()
@@ -149,13 +149,13 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 // plan performs the complete planning operation: compilation + initial size sampling.
 //
 // Step 1: Tree Analysis & Plan Compilation
-// - Recursively walk the node tree to identify static vs dynamic content
-// - Merge adjacent static nodes into single []byte chunks for efficiency
-// - Store direct references to dynamic nodes
+// - Recursively walk the node tree to identify static vs dynamic content.
+// - Merge adjacent static nodes into single []byte chunks for efficiency.
+// - Store direct references to dynamic nodes.
 //
 // Step 2: Initial Size Sampling
-// - Execute the compiled plan once to seed buffer size optimization
-// - This provides the initial data point for adaptive sizing
+// - Execute the compiled plan once to seed buffer size optimisation.
+// - This provides the initial data point for adaptive sizing.
 func (jc *Compiler) plan(rootNode node.Node) *ExecutionPlan {
 	plan := &ExecutionPlan{}
 	var staticBuffer bytes.Buffer
@@ -188,7 +188,7 @@ func (jc *Compiler) plan(rootNode node.Node) *ExecutionPlan {
 
 // shouldUpdateStats determines if we should update sizing statistics based on deviation.
 // Only updates when the actual size deviates significantly from our prediction,
-// reducing overhead while maintaining buffer optimization.
+// reducing overhead while maintaining buffer optimisation.
 func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 	// Always update on first render (no baseline yet)
 	if predicted == 0 {
@@ -205,14 +205,14 @@ func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 // This is the core compilation algorithm that determines what can be pre-rendered.
 //
 // Static Content Strategy:
-// - Static nodes are immediately rendered to a temporary buffer
-// - Adjacent static content is merged into single chunks for efficiency
-// - Only flushed to plan when dynamic content is encountered
+// - Static nodes are immediately rendered to a temporary buffer.
+// - Adjacent static content is merged into single chunks for efficiency.
+// - Only flushed to plan when dynamic content is encountered.
 //
 // Dynamic Content Strategy:
-// - Dynamic nodes store their path (slice of child indices from root)
-// - On render, the path is traversed on the NEW tree to get fresh values
-// - This enables re-evaluation of dynamic content with different data
+// - Dynamic nodes store their path (slice of child indices from root).
+// - On render, the path is traversed on the NEW tree to get fresh values.
+// - This enables re-evaluation of dynamic content with different data.
 func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *ExecutionPlan, path []int) {
 	if jc.dynamic(n) {
 		// Dynamic node found - flush accumulated static content first
