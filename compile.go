@@ -301,7 +301,7 @@ func (jc *Compiler) dynamic(n node.Node) bool {
 	switch typed := n.(type) {
 	case *node.FunctionComponent, *node.FunctionsComponent, *node.ConditionalBuilder:
 		return true
-	case *text.TextNode:
+	case *text.Node:
 		return typed.Dynamic()
 	default:
 		return false
