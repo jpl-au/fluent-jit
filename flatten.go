@@ -1,10 +1,10 @@
 package jit
 
 import (
+	"bytes"
 	"errors"
 	"io"
 
-	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
 )
 
@@ -25,12 +25,11 @@ func NewFlattener(n node.Node) (*Flattener, error) {
 		return nil, ErrDynamicContent
 	}
 
-	buf := fluent.NewBuffer()
-	defer fluent.PutBuffer(buf)
-	n.RenderBuilder(buf)
+	var buf bytes.Buffer
+	n.RenderBuilder(&buf)
 
 	return &Flattener{
-		bytes: append([]byte{}, buf.Bytes()...),
+		bytes: buf.Bytes(),
 	}, nil
 }
 

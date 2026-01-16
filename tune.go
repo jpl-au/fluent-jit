@@ -1,6 +1,7 @@
 package jit
 
 import (
+	"bytes"
 	"io"
 	"sync"
 
@@ -93,22 +94,20 @@ func (jt *Tuner) Render(w ...io.Writer) []byte {
 // 3. Updates statistics with actual render size for continuous optimisation.
 // 4. Automatically adapts to changing content patterns via variance detection.
 func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
-	// Get adaptively-sized buffer (lock-free atomic read)
-	buf := fluent.NewBuffer(jt.sizer.GetBaseline())
-	defer fluent.PutBuffer(buf)
-
-	// Execute template rendering
-	n.RenderBuilder(buf)
-
-	// Continuously update statistics for adaptive optimisation
-	// Unlike compiler, tuner always updates since content patterns can change
-	jt.sizer.UpdateStats(buf.Len())
-
-	// Handle output destination
+	// With writer: use pooled buffer, write, then return to pool
 	if w != nil {
+		buf := fluent.NewBuffer(jt.sizer.GetBaseline())
+		n.RenderBuilder(buf)
+		jt.sizer.UpdateStats(buf.Len())
 		_, _ = buf.WriteTo(w)
+		fluent.PutBuffer(buf)
 		return nil
 	}
+
+	// Without writer: use local buffer with predicted capacity
+	buf := bytes.NewBuffer(make([]byte, 0, jt.sizer.GetBaseline()))
+	n.RenderBuilder(buf)
+	jt.sizer.UpdateStats(buf.Len())
 	return buf.Bytes()
 }
 

@@ -1,10 +1,10 @@
 package jit
 
 import (
+	"bytes"
 	"io"
 	"sync"
 
-	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
 )
 
@@ -24,7 +24,10 @@ var (
 // Warning: The global registry grows indefinitely. Do not use dynamic IDs
 // without manually calling ResetCompile(id) to free memory.
 func Compile(id string, n node.Node, w ...io.Writer) []byte {
-	val, _ := compilers.LoadOrStore(id, NewCompiler())
+	val, loaded := compilers.Load(id)
+	if !loaded {
+		val, _ = compilers.LoadOrStore(id, NewCompiler())
+	}
 	compiler := val.(*Compiler) //nolint:forcetypeassert // type guaranteed by LoadOrStore
 	return compiler.Render(n, w...)
 }
@@ -36,7 +39,10 @@ func Compile(id string, n node.Node, w ...io.Writer) []byte {
 // Warning: The global registry grows indefinitely. Do not use dynamic IDs
 // without manually calling ResetTune(id) to free memory.
 func Tune(id string, n node.Node, w ...io.Writer) []byte {
-	val, _ := tuners.LoadOrStore(id, NewTuner())
+	val, loaded := tuners.Load(id)
+	if !loaded {
+		val, _ = tuners.LoadOrStore(id, NewTuner())
+	}
 	tuner := val.(*Tuner) //nolint:forcetypeassert // type guaranteed by LoadOrStore
 	return tuner.Tune(n).Render(w...)
 }
@@ -84,13 +90,11 @@ func Flatten(id string, n node.Node, w ...io.Writer) []byte {
 			return n.Render(w...)
 		}
 
-		buf := fluent.NewBuffer()
-		defer fluent.PutBuffer(buf)
-		n.RenderBuilder(buf)
-		bytes := append([]byte{}, buf.Bytes()...)
+		var buf bytes.Buffer
+		n.RenderBuilder(&buf)
 
-		flattened.Store(id, bytes)
-		val = bytes
+		flattened.Store(id, buf.Bytes())
+		val = buf.Bytes()
 	}
 
 	bytes := val.([]byte) //nolint:forcetypeassert // type guaranteed by Store above

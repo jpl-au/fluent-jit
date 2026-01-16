@@ -120,28 +120,31 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 		return nil
 	}
 
-	// Use adaptive sizing for optimal buffer allocation
 	predictedSize := jc.sizer.GetBaseline()
-	buf := fluent.NewBuffer(predictedSize)
-	defer fluent.PutBuffer(buf)
 
-	// Execute the linear plan: static content writes + dynamic node renders
-	// Dynamic nodes are fetched from the provided tree using stored paths
+	// With writer: use pooled buffer, write, then return to pool
+	if len(w) > 0 && w[0] != nil {
+		buf := fluent.NewBuffer(predictedSize)
+		for _, element := range plan.Elements {
+			element.Render(root, buf)
+		}
+		actualSize := buf.Len()
+		if jc.shouldUpdateStats(predictedSize, actualSize) {
+			jc.sizer.UpdateStats(actualSize)
+		}
+		_, _ = buf.WriteTo(w[0])
+		fluent.PutBuffer(buf)
+		return nil
+	}
+
+	// Without writer: use local buffer with predicted capacity
+	buf := bytes.NewBuffer(make([]byte, 0, predictedSize))
 	for _, element := range plan.Elements {
 		element.Render(root, buf)
 	}
-
-	// Conditional update: only adjust sizing when prediction is significantly wrong
-	// This reduces overhead by ~95% after size patterns stabilise
 	actualSize := buf.Len()
 	if jc.shouldUpdateStats(predictedSize, actualSize) {
 		jc.sizer.UpdateStats(actualSize)
-	}
-
-	// Handle output destination
-	if len(w) > 0 && w[0] != nil {
-		_, _ = buf.WriteTo(w[0])
-		return nil
 	}
 	return buf.Bytes()
 }
