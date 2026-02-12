@@ -7,7 +7,6 @@ import (
 
 	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
-	"github.com/jpl-au/fluent/text"
 )
 
 // CompiledElement represents a single rendering operation in the execution plan.
@@ -60,7 +59,7 @@ type ExecutionPlan struct {
 // conditional statistical updates to maintain optimal buffer allocation.
 type Compiler struct {
 	executionPlan *ExecutionPlan // Built once using sync.Once
-	planOnce      sync.Once      // Ensures single plan compilation
+	compileOnce   sync.Once      // Ensures single compilation
 	sizer         *AdaptiveSizer // Shared adaptive buffer sizing
 	threshold     int            // Deviation threshold percentage for conditional updates
 	cfg           *CompilerCfg   // Optional custom configuration
@@ -111,8 +110,8 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 //	compiler.Render(UserCard("Bob", 25), w)    // reuses plan, renders Bob
 //	compiler.Render(UserCard("Dan", 40), w)    // reuses plan, renders Dan
 func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
-	jc.planOnce.Do(func() {
-		jc.executionPlan = jc.plan(root)
+	jc.compileOnce.Do(func() {
+		jc.executionPlan = jc.compile(root)
 	})
 
 	plan := jc.executionPlan
@@ -132,6 +131,8 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 		if jc.shouldUpdateStats(predictedSize, actualSize) {
 			jc.sizer.UpdateStats(actualSize)
 		}
+		// Write errors are not actionable mid-render — a closed connection can't be
+		// recovered, and the caller controls the writer's error handling.
 		_, _ = buf.WriteTo(w[0])
 		fluent.PutBuffer(buf)
 		return nil
@@ -149,9 +150,9 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 	return buf.Bytes()
 }
 
-// plan performs the complete planning operation: compilation + initial size sampling.
+// compile builds the execution plan and seeds initial buffer sizing.
 //
-// Step 1: Tree Analysis & Plan Compilation
+// Step 1: Tree Analysis
 // - Recursively walk the node tree to identify static vs dynamic content.
 // - Merge adjacent static nodes into single []byte chunks for efficiency.
 // - Store direct references to dynamic nodes.
@@ -159,22 +160,25 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 // Step 2: Initial Size Sampling
 // - Execute the compiled plan once to seed buffer size optimisation.
 // - This provides the initial data point for adaptive sizing.
-func (jc *Compiler) plan(rootNode node.Node) *ExecutionPlan {
+func (jc *Compiler) compile(rootNode node.Node) *ExecutionPlan {
 	plan := &ExecutionPlan{}
 	var staticBuffer bytes.Buffer
 
-	// Build execution plan by walking tree and compiling static/dynamic elements
-	// Pass empty path slice - will be built up as we recurse
+	// Build execution plan by walking tree and compiling static/dynamic elements.
+	// The empty path slice tracks position in the tree — extended with child indices
+	// as we recurse, so dynamic nodes can record how to navigate back to themselves.
 	jc.walk(rootNode, &staticBuffer, plan, []int{})
 
-	// Flush any remaining static content accumulated in the buffer
+	// Static content is only flushed to the plan when a dynamic node is encountered,
+	// so any trailing static content needs to be flushed here.
 	if staticBuffer.Len() > 0 {
 		plan.Elements = append(plan.Elements, &StaticContent{
 			Content: staticBuffer.Bytes(),
 		})
 	}
 
-	// Execute the plan once to seed adaptive sizing with actual output size
+	// Execute the plan once to seed adaptive sizing with an actual output size,
+	// so the very first real render already has a reasonable buffer prediction.
 	buf := fluent.NewBuffer()
 	defer fluent.PutBuffer(buf)
 
@@ -182,9 +186,7 @@ func (jc *Compiler) plan(rootNode node.Node) *ExecutionPlan {
 		element.Render(rootNode, buf)
 	}
 
-	// Seed the adaptive sizing mechanism with first render size
-	initialSize := buf.Len()
-	jc.sizer.UpdateStats(initialSize)
+	jc.sizer.UpdateStats(buf.Len())
 
 	return plan
 }
@@ -193,13 +195,13 @@ func (jc *Compiler) plan(rootNode node.Node) *ExecutionPlan {
 // Only updates when the actual size deviates significantly from our prediction,
 // reducing overhead while maintaining buffer optimisation.
 func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
-	// Always update on first render (no baseline yet)
+	// No baseline yet — must update to begin establishing one
 	if predicted == 0 {
 		return true
 	}
 
-	// Calculate percentage deviation from prediction using integer math
-	// diff * 100 > predicted * threshold
+	// Integer math equivalent of: abs(actual - predicted) / predicted > threshold / 100
+	// This avoids floating point on the render path
 	diff := abs(actual - predicted)
 	return diff*100 > predicted*jc.threshold
 }
@@ -217,96 +219,64 @@ func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 // - On render, the path is traversed on the NEW tree to get fresh values.
 // - This enables re-evaluation of dynamic content with different data.
 func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *ExecutionPlan, path []int) {
-	if jc.dynamic(n) {
-		// Dynamic node found - flush accumulated static content first
+	// Attributes (e.g. .Class(variable)) are treated as static after first render —
+	// their values are frozen at compile time. Use Tune() if values must change between renders.
+	if isDynamicNode(n) {
+		// Flush accumulated static content before recording the dynamic path,
+		// so the execution plan preserves the correct rendering order.
 		if staticBuffer.Len() > 0 {
 			plan.Elements = append(plan.Elements, &StaticContent{
-				Content: append([]byte{}, staticBuffer.Bytes()...), // Copy bytes to avoid buffer reuse issues
+				Content: append([]byte{}, staticBuffer.Bytes()...), // copy — staticBuffer is reset and reused below
 			})
 			staticBuffer.Reset()
 		}
 
-		// Store path to dynamic node (copy to avoid slice mutation issues)
+		// Explicit copy because append(path, i) in the loop below may share
+		// the same backing array — without a copy, stored paths could be
+		// silently corrupted by later iterations.
 		pathCopy := make([]int, len(path))
 		copy(pathCopy, path)
 		plan.Elements = append(plan.Elements, &DynamicPath{Path: pathCopy})
 		return
 	}
 
-	// Check if this static node has any dynamic children
+	// Determine whether children need individual processing or if the
+	// entire subtree can be rendered as a single static chunk.
 	children := n.Nodes()
 	hasDynamicChildren := false
 	for _, child := range children {
-		if jc.hasDynamicContent(child) {
+		if isDynamic(child) {
 			hasDynamicChildren = true
 			break
 		}
 	}
 
 	if hasDynamicChildren {
-		// Node has dynamic children - render opening tag, process children, render closing tag
+		// Node has dynamic children — render opening/closing tags as static content,
+		// but process children individually so dynamic ones get their own paths.
 		if elem, ok := n.(node.Element); ok {
-			// Render opening tag to static buffer
 			elem.RenderOpen(staticBuffer)
 
-			// Process children individually to separate static/dynamic content
 			for i, child := range children {
-				childPath := append(path, i) // Extend path with child index
+				// append may reuse path's backing array, which is safe here because
+				// walk is depth-first: each recursive call completes before the next
+				// iteration overwrites the same position. Stored paths use explicit
+				// copies (pathCopy above) so they aren't affected.
+				childPath := append(path, i)
 				jc.walk(child, staticBuffer, plan, childPath)
 			}
 
-			// Render closing tag to static buffer
 			elem.RenderClose(staticBuffer)
 		} else {
-			// Not an Element, fall back to processing children only
+			// Non-Element container (e.g. Fragment) — no opening/closing tags to render
 			for i, child := range children {
 				childPath := append(path, i)
 				jc.walk(child, staticBuffer, plan, childPath)
 			}
 		}
 	} else {
-		// Completely static subtree - render to buffer for merging
+		// Entirely static subtree — render directly for merging with adjacent static content
 		n.RenderBuilder(staticBuffer)
 	}
 }
 
-// hasDynamicContent recursively checks if a node or its children contain dynamic content.
-// Used during compilation to determine if a subtree can be pre-rendered.
-func (jc *Compiler) hasDynamicContent(n node.Node) bool {
-	if jc.dynamic(n) {
-		return true
-	}
-
-	// Recursively check all children
-	for _, child := range n.Nodes() {
-		if child != nil && jc.hasDynamicContent(child) {
-			return true
-		}
-	}
-	return false
-}
-
-// isDynamic determines if a single node contains dynamic content that cannot be pre-compiled.
-// This check happens once during planning - dynamic nodes are never re-evaluated.
-//
-// Marked as dynamic: Text(), Textf(), RawText(), RawTextf(), Conditionals, Func(), Funcs().
-//
-// CAVEAT: Variables used in attributes (e.g., .Class(variable)) are treated as static after
-// first render. The variable's value is copied into the element at compile time. If values
-// need to change between renders, use jit.Tune() instead of jit.Compile().
-func (jc *Compiler) dynamic(n node.Node) bool {
-	// Check if node implements Dynamic interface
-	if dynamic, ok := n.(node.Dynamic); ok {
-		return dynamic.Dynamic()
-	}
-
-	// Check known dynamic types that require runtime evaluation
-	switch typed := n.(type) {
-	case *node.FunctionComponent, *node.FunctionsComponent, *node.ConditionalBuilder:
-		return true
-	case *text.Node:
-		return typed.Dynamic()
-	default:
-		return false
-	}
-}

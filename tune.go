@@ -79,7 +79,7 @@ func (jt *Tuner) Render(w ...io.Writer) []byte {
 		writer = w[0]
 	}
 
-	// Thread-safe access to current template
+	// Snapshot rootNode under read lock so the template can't change mid-render
 	jt.mu.RLock()
 	rootNode := jt.rootNode
 	jt.mu.RUnlock()
@@ -87,14 +87,13 @@ func (jt *Tuner) Render(w ...io.Writer) []byte {
 	return jt.tune(rootNode, writer)
 }
 
-// tune performs the core adaptive rendering logic.
-// This method implements dynamic buffer optimisation:
-// 1. Uses adaptive sizing to pre-allocate optimal buffer size.
-// 2. Renders the template directly into the sized buffer.
-// 3. Updates statistics with actual render size for continuous optimisation.
-// 4. Automatically adapts to changing content patterns via variance detection.
+// tune performs the core adaptive rendering logic:
+// 1. Pre-allocates a buffer using the predicted size from adaptive sizing.
+// 2. Renders the template into the buffer.
+// 3. Feeds the actual size back to the sizer so future predictions improve.
+// 4. The sizer automatically detects pattern changes via variance monitoring.
 func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
-	// With writer: use pooled buffer, write, then return to pool
+	// With writer: use pooled buffer to avoid allocation, then return it to the pool
 	if w != nil {
 		buf := fluent.NewBuffer(jt.sizer.GetBaseline())
 		n.RenderBuilder(buf)

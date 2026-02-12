@@ -30,6 +30,7 @@ import (
 	"slices"
 
 	"github.com/jpl-au/fluent/node"
+	"github.com/jpl-au/fluent/text"
 )
 
 // CompilerCfg holds configuration for JIT compiler instances.
@@ -47,19 +48,27 @@ type TunerCfg struct {
 	GrowthFactor int // multiplier percentage for average size
 }
 
-// dynamic checks if a node or any of its children contain dynamic content.
-func dynamic(n node.Node) bool {
-	// Check if node implements Dynamic interface
+// isDynamicNode reports whether a single node contains dynamic content
+// that requires runtime evaluation and cannot be pre-rendered.
+func isDynamicNode(n node.Node) bool {
 	if d, ok := n.(node.Dynamic); ok && d.Dynamic() {
 		return true
 	}
 
-	// Check known dynamic types
-	switch n.(type) {
+	switch t := n.(type) {
 	case *node.FunctionComponent, *node.FunctionsComponent, *node.ConditionalBuilder:
 		return true
+	case *text.Node:
+		return t.Dynamic()
 	}
 
-	// Recursively check children
-	return slices.ContainsFunc(n.Nodes(), dynamic)
+	return false
+}
+
+// isDynamic reports whether a node or any of its descendants contain dynamic content.
+func isDynamic(n node.Node) bool {
+	if isDynamicNode(n) {
+		return true
+	}
+	return slices.ContainsFunc(n.Nodes(), isDynamic)
 }

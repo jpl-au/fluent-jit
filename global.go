@@ -24,6 +24,9 @@ var (
 // Warning: The global registry grows indefinitely. Do not use dynamic IDs
 // without manually calling ResetCompile(id) to free memory.
 func Compile(id string, n node.Node, w ...io.Writer) []byte {
+	// Load first to avoid allocating a NewCompiler on every call — LoadOrStore
+	// evaluates its arguments eagerly, so calling it directly would allocate
+	// even when the key already exists.
 	val, loaded := compilers.Load(id)
 	if !loaded {
 		val, _ = compilers.LoadOrStore(id, NewCompiler())
@@ -77,16 +80,20 @@ func ResetTune(ids ...string) {
 // On first call with a node, it validates the content is static, renders it once,
 // and stores the result. Subsequent calls retrieve the stored bytes.
 //
+// Unlike NewFlattener which returns an error for dynamic content, this silently
+// falls back to uncached rendering. This avoids disrupting request handlers where
+// returning an error would be impractical.
+//
 // Warning: The global registry grows indefinitely. Do not use dynamic IDs
 // without manually calling ResetFlatten(id) to free memory.
 func Flatten(id string, n node.Node, w ...io.Writer) []byte {
-	// Try to load existing flattened content
 	val, loaded := flattened.Load(id)
 
 	if !loaded {
-		// First time - validate static, render, store
-		// If dynamic, fallback to standard rendering without caching
-		if dynamic(n) {
+		// Falls back to standard render for dynamic content rather than erroring,
+		// since the global API is typically called in request handlers where
+		// returning an error would be disruptive.
+		if isDynamic(n) {
 			return n.Render(w...)
 		}
 
@@ -99,7 +106,6 @@ func Flatten(id string, n node.Node, w ...io.Writer) []byte {
 
 	bytes := val.([]byte) //nolint:forcetypeassert // type guaranteed by Store above
 
-	// Handle output destination
 	if len(w) > 0 && w[0] != nil {
 		_, _ = w[0].Write(bytes)
 		return nil
