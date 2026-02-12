@@ -2,14 +2,10 @@ package jit
 
 import (
 	"bytes"
-	"errors"
 	"io"
 
 	"github.com/jpl-au/fluent/node"
 )
-
-// ErrDynamicContent is returned when attempting to flatten dynamic content.
-var ErrDynamicContent = errors.New("NewFlattener() requires static content - use NewCompiler() for dynamic content")
 
 // Flattener holds pre-rendered static content as bytes.
 // This is the instance API for static content rendering — no map lookups,

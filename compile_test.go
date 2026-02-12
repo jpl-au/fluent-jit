@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -179,5 +180,58 @@ func TestCompilerWithConfiguration(t *testing.T) {
 	expected := "<div>hello</div>"
 	if result != expected {
 		t.Errorf("configured compiler should still render correctly:\n  got  %q\n  want %q", result, expected)
+	}
+}
+
+// TestCompilerValidateCompatibleTree verifies that Validate returns nil when
+// the tree structure matches the compiled plan. This is the happy path — the
+// tree has the same shape as the one used to build the plan, so all dynamic
+// paths resolve correctly.
+func TestCompilerValidateCompatibleTree(t *testing.T) {
+	compiler := NewCompiler()
+
+	// Build the plan from a tree with a dynamic child at position [1].
+	original := div.New(span.Static("Hello "), span.Text("Alice"))
+	compiler.Render(original)
+
+	// Same structure, different dynamic content — should validate fine.
+	compatible := div.New(span.Static("Hello "), span.Text("Bob"))
+	if err := compiler.Validate(compatible); err != nil {
+		t.Errorf("structurally identical tree should pass validation, got: %v", err)
+	}
+}
+
+// TestCompilerValidateIncompatibleTree verifies that Validate returns
+// ErrStructureMismatch when the tree has fewer children than the compiled
+// plan expects. This catches the case where someone passes a structurally
+// different tree to a compiled template — which would produce truncated
+// output at render time.
+func TestCompilerValidateIncompatibleTree(t *testing.T) {
+	compiler := NewCompiler()
+
+	// Build the plan from a tree with two children.
+	original := div.New(span.Static("Hello "), span.Text("Alice"))
+	compiler.Render(original)
+
+	// Tree with fewer children — the dynamic path [1] no longer exists.
+	incompatible := div.New(span.Static("Hello "))
+	err := compiler.Validate(incompatible)
+	if err == nil {
+		t.Fatal("structurally different tree should fail validation — missing child would cause truncated output")
+	}
+	if !errors.Is(err, ErrStructureMismatch) {
+		t.Errorf("error should wrap ErrStructureMismatch for programmatic checking, got: %v", err)
+	}
+}
+
+// TestCompilerValidateBeforeCompile verifies that Validate returns nil when
+// called before any Render — there is no plan to validate against yet, so
+// there is nothing that could be incompatible.
+func TestCompilerValidateBeforeCompile(t *testing.T) {
+	compiler := NewCompiler()
+
+	tree := div.New(span.Static("hello"))
+	if err := compiler.Validate(tree); err != nil {
+		t.Errorf("validate before compile should return nil (no plan yet), got: %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sync"
 
@@ -95,6 +96,51 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 	jc.threshold = threshold
 	jc.sizer.Configure(max, variance, growthFactor)
 	return jc
+}
+
+// Validate checks whether a node tree is structurally compatible with the
+// compiled execution plan. It walks each DynamicPath in the plan and verifies
+// that the path resolves to a valid node in the provided tree.
+//
+// This is a diagnostic tool for tests and development — it should NOT be called
+// in production because it adds overhead to every render. In production, a
+// structure mismatch will produce visibly broken output, which is sufficient
+// signal to investigate.
+//
+// Returns nil if the tree is compatible, or ErrStructureMismatch with details
+// about which path failed.
+//
+// Example (in a test):
+//
+//	compiler := jit.NewCompiler()
+//	compiler.Render(baseTree)          // builds plan
+//	if err := compiler.Validate(newTree); err != nil {
+//	    t.Fatalf("tree structure changed: %v", err)
+//	}
+func (jc *Compiler) Validate(root node.Node) error {
+	plan := jc.executionPlan
+	if plan == nil {
+		return nil // no plan compiled yet — nothing to validate against
+	}
+
+	for _, element := range plan.Elements {
+		dp, ok := element.(*DynamicPath)
+		if !ok {
+			continue // static content — always valid
+		}
+
+		n := root
+		for depth, idx := range dp.Path {
+			children := n.Nodes()
+			if idx >= len(children) {
+				return fmt.Errorf("%w: path %v failed at depth %d — expected child index %d but node only has %d children",
+					ErrStructureMismatch, dp.Path, depth, idx, len(children))
+			}
+			n = children[idx]
+		}
+	}
+
+	return nil
 }
 
 // Render builds the execution plan on first call, then renders the node.
