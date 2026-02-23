@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/jpl-au/fluent"
@@ -31,6 +31,44 @@ type Patch struct {
 	HTML []byte
 }
 
+// StructuralChange describes why a diff detected a structural change.
+// The caller can use this to produce actionable diagnostics that tell
+// the developer exactly what changed and how to avoid root morphs.
+type StructuralChange struct {
+	Added     []string // keys present in the new tree but not the old
+	Removed   []string // keys present in the old tree but not the new
+	Reordered bool     // same keys, different order
+}
+
+// String returns a human-readable description of the change,
+// e.g. "key 'sidebar' added" or "keys reordered".
+func (c *StructuralChange) String() string {
+	var parts []string
+	if len(c.Added) > 0 {
+		parts = append(parts, quotedKeys(c.Added)+" added")
+	}
+	if len(c.Removed) > 0 {
+		parts = append(parts, quotedKeys(c.Removed)+" removed")
+	}
+	if c.Reordered {
+		parts = append(parts, "keys reordered")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// quotedKeys formats key names for human-readable diagnostics.
+// A single key returns "key 'x'"; multiple keys return "keys 'x', 'y'".
+func quotedKeys(keys []string) string {
+	if len(keys) == 1 {
+		return "key '" + keys[0] + "'"
+	}
+	quoted := make([]string, len(keys))
+	for i, k := range keys {
+		quoted[i] = "'" + k + "'"
+	}
+	return "keys " + strings.Join(quoted, ", ")
+}
+
 // Differ tracks rendered output of keyed dynamic nodes across renders and
 // produces targeted patches when their content changes.
 //
@@ -39,10 +77,11 @@ type Patch struct {
 //
 //  1. Render() on initial page load — returns full HTML, stores snapshots
 //  2. Diff() after each state change — returns patches for changed elements
-//  3. If Diff returns fullRender=true, call Render() again for a full re-render
+//  3. If Diff returns a *StructuralChange, call Render() again for a full re-render
 type Differ struct {
 	mu        sync.Mutex
 	snapshots map[string]*bytes.Buffer
+	order     []string // outermost key order for reorder detection
 	seeded    bool
 }
 
@@ -66,7 +105,8 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	// Return old buffers to the pool before collecting new snapshots.
 	d.returnBuffers()
 	d.snapshots = make(map[string]*bytes.Buffer)
-	collectSnapshots(root, d.snapshots)
+	d.order = nil
+	collectSnapshots(root, d.snapshots, &d.order)
 	d.seeded = true
 
 	return root.Render(w...)
@@ -75,37 +115,38 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 // Diff compares the new tree against stored snapshots and returns
 // targeted patches for any keyed dynamic nodes whose content changed.
 //
-// Returns (patches, false) when all keys match between renders.
+// Returns (patches, nil) when all keys match between renders.
 // The patches slice is nil if nothing changed.
 //
-// Returns (nil, true) when keys were added or removed — the caller
-// should use Render for a full re-render instead.
+// Returns (nil, *StructuralChange) when keys were added, removed, or
+// reordered — the caller should use Render for a full re-render and
+// can use the StructuralChange for diagnostics.
 //
-// Returns (nil, false) if Render has not been called yet.
-func (d *Differ) Diff(root node.Node) ([]Patch, bool) {
+// Returns (nil, nil) if Render has not been called yet.
+func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	if !d.seeded {
-		return nil, false
+		return nil, nil
 	}
 
 	current := make(map[string]*bytes.Buffer)
-	collectSnapshots(root, current)
+	var currentOrder []string
+	collectSnapshots(root, current, &currentOrder)
 
-	// Structural change — keys were added or removed
-	if !sameKeys(d.snapshots, current) {
-		// Return the current buffers since we won't store them.
+	// Structural change — keys were added, removed, or reordered.
+	// Comparing the ordered slices catches all three cases in one check.
+	if !slices.Equal(d.order, currentOrder) {
 		for _, buf := range current {
 			fluent.PutBuffer(buf)
 		}
-		return nil, true
+		return nil, describeChange(d.order, currentOrder)
 	}
 
-	// Compare each keyed element's rendered output in sorted key order
-	// so patches are deterministic regardless of map iteration.
+	// Compare each keyed element's rendered output in tree-walk order.
 	var patches []Patch
-	for _, key := range slices.Sorted(maps.Keys(current)) {
+	for _, key := range currentOrder {
 		cur := current[key]
 		prev := d.snapshots[key]
 		if !bytes.Equal(cur.Bytes(), prev.Bytes()) {
@@ -117,7 +158,38 @@ func (d *Differ) Diff(root node.Node) ([]Patch, bool) {
 	d.returnBuffers()
 	d.snapshots = current
 
-	return patches, false
+	return patches, nil
+}
+
+// describeChange compares the previous and current key orders and
+// returns a StructuralChange describing what happened.
+func describeChange(prev, current []string) *StructuralChange {
+	prevSet := make(map[string]bool, len(prev))
+	for _, k := range prev {
+		prevSet[k] = true
+	}
+	curSet := make(map[string]bool, len(current))
+	for _, k := range current {
+		curSet[k] = true
+	}
+
+	var added, removed []string
+	for _, k := range current {
+		if !prevSet[k] {
+			added = append(added, k)
+		}
+	}
+	for _, k := range prev {
+		if !curSet[k] {
+			removed = append(removed, k)
+		}
+	}
+
+	return &StructuralChange{
+		Added:     added,
+		Removed:   removed,
+		Reordered: len(added) == 0 && len(removed) == 0,
+	}
 }
 
 // Validate checks a tree for duplicate dynamic keys. Keys must be unique
@@ -140,38 +212,33 @@ func (d *Differ) returnBuffers() {
 // dynamic node into a pooled buffer. Nodes with the key "_" (marked
 // dynamic without a tracking key) are skipped.
 //
+// Keys are appended to order in tree-walk order so the caller can
+// detect reordering as a structural change.
+//
 // Once a keyed node is found its children are not searched for further
 // keys. This avoids redundant patches when both a parent and child are
 // keyed — only the outermost key is tracked.
-func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer) {
+func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
 			buf := fluent.NewBuffer(SnapshotHint)
 			n.RenderBuilder(buf)
 			snapshots[key] = buf
+			*order = append(*order, key)
 			return
 		}
 	}
 	for _, child := range n.Nodes() {
-		collectSnapshots(child, snapshots)
-	}
-}
-
-// sameKeys reports whether two snapshot maps have identical key sets.
-func sameKeys(a, b map[string]*bytes.Buffer) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key := range a {
-		if _, ok := b[key]; !ok {
-			return false
+		if child != nil {
+			collectSnapshots(child, snapshots, order)
 		}
 	}
-	return true
 }
 
-// validateKeys walks the tree and checks for duplicate dynamic keys.
+// validateKeys walks the tree depth-first and checks for duplicate dynamic
+// keys. Unlike collectSnapshots it does not stop at keyed nodes — nested
+// keys must also be unique because the Differ tracks by key name, not path.
 func validateKeys(n node.Node, seen map[string]bool) error {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
@@ -183,6 +250,9 @@ func validateKeys(n node.Node, seen map[string]bool) error {
 		}
 	}
 	for _, child := range n.Nodes() {
+		if child == nil {
+			continue
+		}
 		if err := validateKeys(child, seen); err != nil {
 			return err
 		}

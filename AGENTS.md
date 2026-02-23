@@ -355,6 +355,62 @@ compiler.Render(div.New(p.Text("Hello")), w)
 compiler.Render(div.New(span.Text("World")), w)  // Different structure - may produce incorrect output
 ```
 
+## Differ
+
+The Differ tracks rendered output of keyed dynamic nodes across renders and produces targeted patches when content changes. It is the engine behind fluent-poly's live updates, but can be used standalone.
+
+### Lifecycle
+
+```go
+differ := jit.NewDiffer()
+
+// 1. Initial render — stores snapshots of all keyed elements
+html := differ.Render(tree)
+
+// 2. After state change — compare against stored snapshots
+patches, change := differ.Diff(newTree)
+
+// 3. If change is non-nil, keys were added/removed/reordered
+if change != nil {
+    html = differ.Render(newTree)  // Re-render + reset baseline
+    // change.String() → "key 'sidebar' added"
+}
+
+// 4. Otherwise, apply targeted patches
+for _, p := range patches {
+    // p.Key, p.HTML
+}
+```
+
+### Key concepts
+
+**Outermost key tracking.** `collectSnapshots` walks the tree depth-first but stops recursing once a keyed node is found. If a parent and child are both keyed, only the parent is tracked — a change to the child is naturally captured in the parent's rendered output.
+
+**Key order detection.** The Differ tracks keys in tree-walk order, not just as a set. This means reordering keyed elements (e.g. sorting a list) triggers a structural change, even when the same keys are present.
+
+**Structural change diagnostics.** When `Diff()` returns a `*StructuralChange`, it reports exactly what happened:
+
+- `change.Added` — keys in the new tree that weren't in the old
+- `change.Removed` — keys in the old tree that aren't in the new
+- `change.Reordered` — same keys, different order
+- `change.String()` — human-readable description (e.g. `"key 'help' added"`, `"keys reordered"`)
+
+fluent-poly uses this to log actionable diagnostics so developers know when and why a root morph was triggered.
+
+**Pooled buffers.** Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid allocation overhead. Old snapshots are returned to the pool before new ones are collected.
+
+**Validation.** `Differ.Validate(tree)` checks for duplicate dynamic keys. Duplicate keys cause the diff engine to lose track of elements — only the last one visited would be stored. Returns `ErrDuplicateKey` for programmatic checking.
+
+### Dynamic keys
+
+Elements are marked dynamic with `.Dynamic("key")`:
+
+```go
+span.Text(count).Dynamic("count")  // Tracked by the Differ
+span.Text(value).Dynamic()          // "_" sentinel — JIT-dynamic but not diff-tracked
+span.Static("hello")                // Static — invisible to the Differ
+```
+
 ## Package Structure
 
 ```
@@ -364,6 +420,7 @@ fluent-jit/
 ├── tune.go      # Tuner: adaptive buffer sizing wrapper
 ├── adaptive.go  # AdaptiveSizer: two-phase buffer sizing logic
 ├── flatten.go   # Flattener: static content pre-rendering
+├── diff.go      # Differ: keyed element tracking and targeted patches
 ├── global.go    # Global API: sync.Map registries and helpers
 └── go.mod       # Module definition
 ```

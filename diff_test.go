@@ -62,10 +62,10 @@ func TestDifferNoPatchesWhenUnchanged(t *testing.T) {
 	}
 
 	differ.Render(tree())
-	patches, fullRender := differ.Diff(tree())
+	patches, change := differ.Diff(tree())
 
-	if fullRender {
-		t.Error("identical trees should not trigger a full re-render")
+	if change != nil {
+		t.Error("identical trees should not trigger a structural change")
 	}
 	if len(patches) != 0 {
 		t.Errorf("identical trees should produce no patches, got %d", len(patches))
@@ -87,10 +87,10 @@ func TestDifferDetectsContentChange(t *testing.T) {
 	}
 
 	differ.Render(makeTree("42"))
-	patches, fullRender := differ.Diff(makeTree("43"))
+	patches, change := differ.Diff(makeTree("43"))
 
-	if fullRender {
-		t.Error("same keys should not trigger a full re-render")
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
 	}
 	if len(patches) != 1 {
 		t.Fatalf("expected 1 patch for changed element, got %d", len(patches))
@@ -116,10 +116,10 @@ func TestDifferMultipleChanges(t *testing.T) {
 	}
 
 	differ.Render(makeTree("Alice", "10"))
-	patches, fullRender := differ.Diff(makeTree("Bob", "20"))
+	patches, change := differ.Diff(makeTree("Bob", "20"))
 
-	if fullRender {
-		t.Error("same keys should not trigger a full re-render")
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
 	}
 	if len(patches) != 2 {
 		t.Fatalf("expected 2 patches when both elements changed, got %d", len(patches))
@@ -154,10 +154,10 @@ func TestDifferPartialChange(t *testing.T) {
 
 	differ.Render(makeTree("Alice", "10"))
 	// Only count changes, name stays the same
-	patches, fullRender := differ.Diff(makeTree("Alice", "20"))
+	patches, change := differ.Diff(makeTree("Alice", "20"))
 
-	if fullRender {
-		t.Error("same keys should not trigger a full re-render")
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
 	}
 	if len(patches) != 1 {
 		t.Fatalf("expected 1 patch when only one element changed, got %d", len(patches))
@@ -168,8 +168,8 @@ func TestDifferPartialChange(t *testing.T) {
 }
 
 // TestDifferStructuralChangeKeyAdded verifies that when a new keyed element
-// appears between renders, Diff signals a structural change. The caller
-// should respond by doing a full re-render via Render().
+// appears between renders, Diff signals a structural change and reports
+// which key was added.
 func TestDifferStructuralChangeKeyAdded(t *testing.T) {
 	differ := NewDiffer()
 
@@ -182,18 +182,25 @@ func TestDifferStructuralChangeKeyAdded(t *testing.T) {
 	)
 
 	differ.Render(tree1)
-	patches, fullRender := differ.Diff(tree2)
+	patches, change := differ.Diff(tree2)
 
-	if !fullRender {
-		t.Error("adding a new keyed element should trigger a full re-render")
+	if change == nil {
+		t.Fatal("adding a new keyed element should trigger a structural change")
 	}
 	if patches != nil {
 		t.Error("structural change should return nil patches — the caller should use Render instead")
 	}
+	if len(change.Added) != 1 || change.Added[0] != "help" {
+		t.Errorf("should report 'help' as added, got Added=%v", change.Added)
+	}
+	if len(change.Removed) != 0 {
+		t.Errorf("should report no removals, got Removed=%v", change.Removed)
+	}
 }
 
 // TestDifferStructuralChangeKeyRemoved verifies that when a keyed element
-// disappears between renders, Diff signals a structural change.
+// disappears between renders, Diff signals a structural change and reports
+// which key was removed.
 func TestDifferStructuralChangeKeyRemoved(t *testing.T) {
 	differ := NewDiffer()
 
@@ -206,13 +213,98 @@ func TestDifferStructuralChangeKeyRemoved(t *testing.T) {
 	)
 
 	differ.Render(tree1)
-	patches, fullRender := differ.Diff(tree2)
+	patches, change := differ.Diff(tree2)
 
-	if !fullRender {
-		t.Error("removing a keyed element should trigger a full re-render")
+	if change == nil {
+		t.Fatal("removing a keyed element should trigger a structural change")
 	}
 	if patches != nil {
 		t.Error("structural change should return nil patches")
+	}
+	if len(change.Removed) != 1 || change.Removed[0] != "help" {
+		t.Errorf("should report 'help' as removed, got Removed=%v", change.Removed)
+	}
+	if len(change.Added) != 0 {
+		t.Errorf("should report no additions, got Added=%v", change.Added)
+	}
+}
+
+// TestDifferStructuralChangeKeyReordered verifies that when the same set
+// of keys appears in a different order between renders, Diff signals a
+// structural change with Reordered=true. Reordering (e.g. sorting a list)
+// changes the DOM structure even though the same elements are present.
+func TestDifferStructuralChangeKeyReordered(t *testing.T) {
+	differ := NewDiffer()
+
+	tree1 := div.New(
+		span.Text("Alice").Dynamic("name"),
+		span.Text("42").Dynamic("count"),
+	)
+	tree2 := div.New(
+		span.Text("42").Dynamic("count"),
+		span.Text("Alice").Dynamic("name"),
+	)
+
+	differ.Render(tree1)
+	patches, change := differ.Diff(tree2)
+
+	if change == nil {
+		t.Fatal("reordering keyed elements should trigger a structural change")
+	}
+	if patches != nil {
+		t.Error("structural change should return nil patches")
+	}
+	if !change.Reordered {
+		t.Error("should report Reordered=true when same keys in different order")
+	}
+	if len(change.Added) != 0 || len(change.Removed) != 0 {
+		t.Errorf("reorder should have no additions or removals, got Added=%v Removed=%v",
+			change.Added, change.Removed)
+	}
+}
+
+// TestDifferStructuralChangeString verifies that StructuralChange.String
+// produces a human-readable description suitable for log output.
+func TestDifferStructuralChangeString(t *testing.T) {
+	tests := []struct {
+		name   string
+		change StructuralChange
+		want   string
+	}{
+		{
+			name:   "single key added",
+			change: StructuralChange{Added: []string{"sidebar"}},
+			want:   "key 'sidebar' added",
+		},
+		{
+			name:   "multiple keys added",
+			change: StructuralChange{Added: []string{"sidebar", "help"}},
+			want:   "keys 'sidebar', 'help' added",
+		},
+		{
+			name:   "single key removed",
+			change: StructuralChange{Removed: []string{"help"}},
+			want:   "key 'help' removed",
+		},
+		{
+			name:   "added and removed",
+			change: StructuralChange{Added: []string{"nav"}, Removed: []string{"help"}},
+			want:   "key 'nav' added, key 'help' removed",
+		},
+		{
+			name:   "reordered",
+			change: StructuralChange{Reordered: true},
+			want:   "keys reordered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.change.String()
+			if got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -223,9 +315,9 @@ func TestDifferDiffBeforeRender(t *testing.T) {
 	differ := NewDiffer()
 
 	tree := div.New(span.Text("hello").Dynamic("msg"))
-	patches, fullRender := differ.Diff(tree)
+	patches, change := differ.Diff(tree)
 
-	if fullRender {
+	if change != nil {
 		t.Error("Diff before Render should not signal structural change")
 	}
 	if patches != nil {
@@ -247,9 +339,9 @@ func TestDifferUnkeyedDynamicNotTracked(t *testing.T) {
 	}
 
 	differ.Render(makeTree("hello"))
-	patches, fullRender := differ.Diff(makeTree("world"))
+	patches, change := differ.Diff(makeTree("world"))
 
-	if fullRender {
+	if change != nil {
 		t.Error("unkeyed dynamic elements should not affect structural change detection")
 	}
 	if len(patches) != 0 {
@@ -273,8 +365,8 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 		span.Text("42").Dynamic("count"),
 		p.Text("Help").Dynamic("help"),
 	)
-	_, fullRender := differ.Diff(tree2)
-	if !fullRender {
+	_, change := differ.Diff(tree2)
+	if change == nil {
 		t.Fatal("expected structural change")
 	}
 
@@ -286,9 +378,9 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 		span.Text("43").Dynamic("count"),
 		p.Text("Help").Dynamic("help"),
 	)
-	patches, fullRender := differ.Diff(tree3)
+	patches, change := differ.Diff(tree3)
 
-	if fullRender {
+	if change != nil {
 		t.Error("same keys after re-render should not trigger structural change")
 	}
 	if len(patches) != 1 {
@@ -357,13 +449,139 @@ func TestDifferNoKeysNoPatchesNoStructuralChange(t *testing.T) {
 	}
 
 	differ.Render(tree())
-	patches, fullRender := differ.Diff(tree())
+	patches, change := differ.Diff(tree())
 
-	if fullRender {
+	if change != nil {
 		t.Error("no keys in either tree should not trigger structural change")
 	}
 	if len(patches) != 0 {
 		t.Errorf("no keys should produce no patches, got %d", len(patches))
+	}
+}
+
+// TestDifferWhenTrueExposesKey verifies that a keyed element inside
+// node.When(true, ...) is visible to the Differ and produces patches
+// when its content changes.
+func TestDifferWhenTrueExposesKey(t *testing.T) {
+	differ := NewDiffer()
+
+	makeTree := func(msg string) node.Node {
+		return div.New(
+			node.When(true, span.Text(msg).Dynamic("msg")),
+		)
+	}
+
+	differ.Render(makeTree("hello"))
+	patches, change := differ.Diff(makeTree("world"))
+
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
+	}
+	if len(patches) != 1 || patches[0].Key != "msg" {
+		t.Fatalf("expected 1 patch for 'msg', got %d patches", len(patches))
+	}
+}
+
+// TestDifferWhenToggledDetectsStructuralChange verifies that toggling a
+// condition from true to false causes the keyed element to disappear,
+// which the Differ should detect as a structural change.
+func TestDifferWhenToggledDetectsStructuralChange(t *testing.T) {
+	differ := NewDiffer()
+
+	tree1 := div.New(
+		span.Text("count").Dynamic("count"),
+		node.When(true, p.Text("help").Dynamic("help")),
+	)
+	tree2 := div.New(
+		span.Text("count").Dynamic("count"),
+		node.When(false, p.Text("help").Dynamic("help")),
+	)
+
+	differ.Render(tree1)
+	_, change := differ.Diff(tree2)
+
+	if change == nil {
+		t.Fatal("toggling When from true to false should trigger a structural change — the 'help' key disappeared")
+	}
+	if len(change.Removed) != 1 || change.Removed[0] != "help" {
+		t.Errorf("should report 'help' as removed, got Removed=%v", change.Removed)
+	}
+}
+
+// TestDifferConditionBothBranches verifies that switching between
+// Condition(true) and Condition(false) with different keyed branches
+// triggers a structural change.
+func TestDifferConditionBothBranches(t *testing.T) {
+	differ := NewDiffer()
+
+	tree1 := div.New(
+		node.Condition(true).
+			True(span.Text("yes").Dynamic("yes")).
+			False(span.Text("no").Dynamic("no")),
+	)
+	tree2 := div.New(
+		node.Condition(false).
+			True(span.Text("yes").Dynamic("yes")).
+			False(span.Text("no").Dynamic("no")),
+	)
+
+	differ.Render(tree1)
+	_, change := differ.Diff(tree2)
+
+	if change == nil {
+		t.Fatal("switching condition branches should trigger a structural change — different keys are active")
+	}
+}
+
+// TestDifferFuncExposesKeyedChildren verifies that keyed elements returned
+// by node.Func are visible to the Differ.
+func TestDifferFuncExposesKeyedChildren(t *testing.T) {
+	differ := NewDiffer()
+
+	makeTree := func(msg string) node.Node {
+		return div.New(
+			node.Func(func() node.Node {
+				return span.Text(msg).Dynamic("msg")
+			}),
+		)
+	}
+
+	differ.Render(makeTree("hello"))
+	patches, change := differ.Diff(makeTree("world"))
+
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
+	}
+	if len(patches) != 1 || patches[0].Key != "msg" {
+		t.Fatalf("expected 1 patch for 'msg', got %d patches", len(patches))
+	}
+}
+
+// TestDifferFuncNodesExposesKeyedChildren verifies that keyed elements
+// returned by node.FuncNodes are visible to the Differ.
+func TestDifferFuncNodesExposesKeyedChildren(t *testing.T) {
+	differ := NewDiffer()
+
+	makeTree := func(items []string) node.Node {
+		return div.New(
+			node.FuncNodes(func() []node.Node {
+				nodes := make([]node.Node, len(items))
+				for i, item := range items {
+					nodes[i] = span.Text(item).Dynamic("item-" + item)
+				}
+				return nodes
+			}),
+		)
+	}
+
+	differ.Render(makeTree([]string{"a", "b"}))
+	_, change := differ.Diff(makeTree([]string{"a", "b", "c"}))
+
+	if change == nil {
+		t.Fatal("adding a keyed element via FuncNodes should trigger a structural change")
+	}
+	if len(change.Added) != 1 || change.Added[0] != "item-c" {
+		t.Errorf("should report 'item-c' as added, got Added=%v", change.Added)
 	}
 }
 

@@ -1,19 +1,31 @@
 // Package jit provides Just-In-Time optimisation for HTML rendering.
-// It offers two distinct optimisation strategies:
+// It offers four strategies, each suited to different use cases:
 //
-// 1. Compile: Pre-processes node trees to cache static content for extremely
-// fast subsequent renders. This is ideal for templates that are rendered
-// many times with different dynamic data.
+//  1. Compile: Pre-processes node trees to cache static content for extremely
+//     fast subsequent renders. Ideal for templates rendered many times with
+//     different dynamic data.
 //
-// 2. Tune: Adaptively sizes rendering buffers based on live statistics.
-// This reduces memory allocations and garbage collection pressure for
-// components with highly variable output sizes.
+//  2. Tune: Adaptively sizes rendering buffers based on live statistics.
+//     Reduces memory allocations and garbage collection pressure for
+//     components with highly variable output sizes.
+//
+//  3. Flatten: Pre-renders fully static content to a single []byte at
+//     initialisation. Returns an error if any dynamic content is detected.
+//     Ideal for headers, footers, navigation, and other content that never
+//     changes.
+//
+//  4. Differ: Tracks keyed dynamic elements across renders and produces
+//     targeted patches for live updates. This is the diff engine behind
+//     fluent-poly's reactive UI, but can be used standalone. Mark elements
+//     with .Dynamic("key") to enable tracking.
 //
 // The package provides two APIs:
-//   - Instance API: Create specific instances (`jit.NewCompiler()`, `jit.NewTuner()`)
-//     for fine-grained control over a specific template's lifecycle.
-//   - Global API: Use package-level functions (`jit.Compile`, `jit.Tune`) for
-//     a simple, globally-managed cache of templates identified by a string ID.
+//   - Instance API: Create specific instances ([NewCompiler], [NewTuner],
+//     [NewFlattener], [NewDiffer]) for fine-grained control over a specific
+//     template's lifecycle.
+//   - Global API: Use package-level functions ([Compile], [Tune], [Flatten])
+//     for a simple, globally-managed cache of templates identified by a
+//     string ID.
 //
 // Memory Management Warning:
 // The global API uses unbounded maps to store compiled/tuned templates.
@@ -22,8 +34,8 @@
 //
 // Best Practices:
 //  1. Use constant string IDs for templates (e.g. "header", "footer").
-//  2. If you must use dynamic IDs, manually call `jit.ResetCompile(id)` or
-//     `jit.ResetTune(id)` when the template is no longer needed.
+//  2. If you must use dynamic IDs, manually call [ResetCompile] or
+//     [ResetTune] when the template is no longer needed.
 package jit
 
 import (

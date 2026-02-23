@@ -79,6 +79,47 @@ jit.Flatten("footer", staticTemplate, w)
 
 **Use for:** Headers, footers, navigation, any content that never changes.
 
+### Differ
+
+Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [fluent-poly](https://github.com/jpl-au/fluent-poly)'s reactive UI, but can be used standalone.
+
+```go
+differ := jit.NewDiffer()
+
+// Initial render — stores snapshots of all keyed elements
+html := differ.Render(tree)
+
+// After state change — returns only what changed
+patches, change := differ.Diff(newTree)
+
+if change != nil {
+    // Structural change — keys were added, removed, or reordered.
+    // change.String() describes what happened, e.g. "key 'sidebar' added"
+    html = differ.Render(newTree)
+} else {
+    for _, p := range patches {
+        // p.Key identifies which element, p.HTML is the new content
+    }
+}
+```
+
+Mark elements for tracking with `.Dynamic("key")`. The Differ only tracks **outermost** keyed elements — if a parent and child are both keyed, only the parent is tracked.
+
+```go
+div.New(
+    span.Textf("Count: %d", count).Dynamic("count"),  // Tracked
+    span.Static("Footer"),                              // Ignored
+)
+```
+
+Use `Validate` to catch duplicate keys at startup:
+
+```go
+if err := differ.Validate(tree); err != nil {
+    log.Fatal(err)  // "duplicate dynamic key in render tree: "count""
+}
+```
+
 ## Configuration
 
 Both Compiler and Tuner support custom configuration:
@@ -121,7 +162,7 @@ jit.ResetFlatten()
 
 ## Documentation for LLMs
 
-- `LLM-GUIDE.md` - Technical reference for JIT optimisation strategies
+- `AGENTS.md` - Technical reference for JIT optimisation strategies, Differ, and API details
 
 ## When to Use JIT
 
