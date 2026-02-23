@@ -34,6 +34,35 @@ div.New(
 ).Class("card")  // Static - attribute frozen at first compile
 ```
 
+### Fluent Element Attributes
+
+Elements have named convenience methods for common HTML attributes. These are chainable:
+
+```go
+a.Static("Home").Href("/").Class("nav-link").Id("home-link")
+img.New().Src("/logo.svg").Alt("Logo").Class("logo")
+meta.New().Charset("utf-8")
+```
+
+For attributes without a convenience method, use `SetAttribute()`. **This method does not return the element and cannot be chained:**
+
+```go
+el := div.New(p.Static("Hello")).Class("card")
+el.SetAttribute("role", "region")
+el.SetAttribute("tabindex", "0")
+```
+
+For `data-*` and `aria-*` attributes, use `SetData()` and `SetAria()`. These are chainable:
+
+```go
+div.New(
+    span.Static("Tooltip text"),
+).SetData("toggle", "tooltip").SetData("placement", "top").SetAria("label", "Help")
+// Renders: data-toggle="tooltip" data-placement="top" aria-label="Help"
+```
+
+**There is no `.Attr()` method.** Use `SetAttribute()`, `SetData()`, or `SetAria()` as shown above.
+
 ### Configuration Values
 
 Configuration values like `GrowthFactor: 115` and `Variance: 20` are integers representing percentages. This avoids floating point operations on the hot path. A `GrowthFactor` of 115 means 115% (or 1.15x), giving 15% headroom above the average buffer size.
