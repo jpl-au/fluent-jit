@@ -366,3 +366,47 @@ func TestDifferNoKeysNoPatchesNoStructuralChange(t *testing.T) {
 		t.Errorf("no keys should produce no patches, got %d", len(patches))
 	}
 }
+
+// buildKeyedTree creates a tree with n keyed span elements, simulating
+// a page with many dynamic components.
+func buildKeyedTree(n int, prefix string) node.Node {
+	children := make([]node.Node, n)
+	for i := range children {
+		key := prefix + string(rune('A'+i%26)) + string(rune('0'+i/26))
+		children[i] = span.Text(prefix + key).Dynamic(key)
+	}
+	return div.New(children...)
+}
+
+func BenchmarkDifferRender(b *testing.B) {
+	tree := buildKeyedTree(50, "v1-")
+	differ := NewDiffer()
+
+	b.ResetTimer()
+	for b.Loop() {
+		differ.Render(tree)
+	}
+}
+
+func BenchmarkDifferDiffNoChange(b *testing.B) {
+	tree := buildKeyedTree(50, "v1-")
+	differ := NewDiffer()
+	differ.Render(tree)
+
+	b.ResetTimer()
+	for b.Loop() {
+		differ.Diff(tree)
+	}
+}
+
+func BenchmarkDifferDiffWithChanges(b *testing.B) {
+	tree1 := buildKeyedTree(50, "v1-")
+	tree2 := buildKeyedTree(50, "v2-")
+	differ := NewDiffer()
+	differ.Render(tree1)
+
+	b.ResetTimer()
+	for b.Loop() {
+		differ.Diff(tree2)
+	}
+}

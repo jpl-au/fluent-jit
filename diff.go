@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sync"
 
+	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
 )
 
@@ -33,14 +36,14 @@ type Patch struct {
 //  3. If Diff returns fullRender=true, call Render() again for a full re-render
 type Differ struct {
 	mu        sync.Mutex
-	snapshots map[string][]byte
+	snapshots map[string]*bytes.Buffer
 	seeded    bool
 }
 
 // NewDiffer creates a new Differ instance.
 func NewDiffer() *Differ {
 	return &Differ{
-		snapshots: make(map[string][]byte),
+		snapshots: make(map[string]*bytes.Buffer),
 	}
 }
 
@@ -54,8 +57,9 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Reset and collect snapshots from the tree
-	d.snapshots = make(map[string][]byte)
+	// Return old buffers to the pool before collecting new snapshots.
+	d.returnBuffers()
+	d.snapshots = make(map[string]*bytes.Buffer)
 	collectSnapshots(root, d.snapshots)
 	d.seeded = true
 
@@ -80,24 +84,31 @@ func (d *Differ) Diff(root node.Node) ([]Patch, bool) {
 		return nil, false
 	}
 
-	// Collect current snapshots from the new tree
-	current := make(map[string][]byte)
+	current := make(map[string]*bytes.Buffer)
 	collectSnapshots(root, current)
 
 	// Structural change — keys were added or removed
 	if !sameKeys(d.snapshots, current) {
+		// Return the current buffers since we won't store them.
+		for _, buf := range current {
+			fluent.PutBuffer(buf)
+		}
 		return nil, true
 	}
 
-	// Compare each keyed element's rendered output
+	// Compare each keyed element's rendered output in sorted key order
+	// so patches are deterministic regardless of map iteration.
 	var patches []Patch
-	for key, html := range current {
-		if !bytes.Equal(html, d.snapshots[key]) {
-			patches = append(patches, Patch{Key: key, HTML: html})
+	for _, key := range slices.Sorted(maps.Keys(current)) {
+		cur := current[key]
+		prev := d.snapshots[key]
+		if !bytes.Equal(cur.Bytes(), prev.Bytes()) {
+			patches = append(patches, Patch{Key: key, HTML: cur.Bytes()})
 		}
 	}
 
-	// Update stored snapshots
+	// Return old buffers to the pool and store the new ones.
+	d.returnBuffers()
 	d.snapshots = current
 
 	return patches, false
@@ -111,14 +122,29 @@ func (d *Differ) Validate(root node.Node) error {
 	return validateKeys(root, seen)
 }
 
-// collectSnapshots walks the tree depth-first and renders each node that
-// has a non-empty DynamicKey into the provided map. Nodes with the key "_"
-// (marked dynamic without a tracking key) are skipped.
-func collectSnapshots(n node.Node, snapshots map[string][]byte) {
+// returnBuffers returns all stored snapshot buffers to the pool.
+// Caller must hold d.mu.
+func (d *Differ) returnBuffers() {
+	for _, buf := range d.snapshots {
+		fluent.PutBuffer(buf)
+	}
+}
+
+// collectSnapshots walks the tree depth-first and renders each keyed
+// dynamic node into a pooled buffer. Nodes with the key "_" (marked
+// dynamic without a tracking key) are skipped.
+//
+// Once a keyed node is found its children are not searched for further
+// keys. This avoids redundant patches when both a parent and child are
+// keyed — only the outermost key is tracked.
+func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer) {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
-			snapshots[key] = n.Render()
+			buf := fluent.NewBuffer()
+			n.RenderBuilder(buf)
+			snapshots[key] = buf
+			return
 		}
 	}
 	for _, child := range n.Nodes() {
@@ -127,7 +153,7 @@ func collectSnapshots(n node.Node, snapshots map[string][]byte) {
 }
 
 // sameKeys reports whether two snapshot maps have identical key sets.
-func sameKeys(a, b map[string][]byte) bool {
+func sameKeys(a, b map[string]*bytes.Buffer) bool {
 	if len(a) != len(b) {
 		return false
 	}
