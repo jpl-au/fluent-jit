@@ -31,7 +31,6 @@ import (
 	"slices"
 
 	"github.com/jpl-au/fluent/node"
-	"github.com/jpl-au/fluent/text"
 )
 
 // Sentinel errors for programmatic error checking via errors.Is().
@@ -66,18 +65,8 @@ type TunerCfg struct {
 // isDynamicNode reports whether a single node contains dynamic content
 // that requires runtime evaluation and cannot be pre-rendered.
 func isDynamicNode(n node.Node) bool {
-	if d, ok := n.(node.Dynamic); ok && d.Dynamic() {
-		return true
-	}
-
-	switch t := n.(type) {
-	case *node.FunctionComponent, *node.FunctionsComponent, *node.ConditionalBuilder:
-		return true
-	case *text.Node:
-		return t.Dynamic()
-	}
-
-	return false
+	d, ok := n.(node.Dynamic)
+	return ok && d.IsDynamic()
 }
 
 // isDynamic reports whether a node or any of its descendants contain dynamic content.
