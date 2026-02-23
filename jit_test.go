@@ -33,7 +33,7 @@ func TestIsDynamicNode(t *testing.T) {
 		// Function components must be re-evaluated every render because their
 		// output depends on the closure's captured state.
 		{"function component", node.Func(func() node.Node { return nil }), true},
-		{"function nodes component", node.FuncNodes(func() []node.Node { return nil }), true},
+		{"function nodes component", node.Funcs(func() []node.Node { return nil }), true},
 
 		// Conditionals are dynamic because the branch taken can change between renders.
 		{"conditional", node.When(true, span.Static("yes")), true},

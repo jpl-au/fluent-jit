@@ -557,14 +557,14 @@ func TestDifferFuncExposesKeyedChildren(t *testing.T) {
 	}
 }
 
-// TestDifferFuncNodesExposesKeyedChildren verifies that keyed elements
-// returned by node.FuncNodes are visible to the Differ.
-func TestDifferFuncNodesExposesKeyedChildren(t *testing.T) {
+// TestDifferFuncsExposesKeyedChildren verifies that keyed elements
+// returned by node.Funcs are visible to the Differ.
+func TestDifferFuncsExposesKeyedChildren(t *testing.T) {
 	differ := NewDiffer()
 
 	makeTree := func(items []string) node.Node {
 		return div.New(
-			node.FuncNodes(func() []node.Node {
+			node.Funcs(func() []node.Node {
 				nodes := make([]node.Node, len(items))
 				for i, item := range items {
 					nodes[i] = span.Text(item).Dynamic("item-" + item)
@@ -578,7 +578,7 @@ func TestDifferFuncNodesExposesKeyedChildren(t *testing.T) {
 	_, change := differ.Diff(makeTree([]string{"a", "b", "c"}))
 
 	if change == nil {
-		t.Fatal("adding a keyed element via FuncNodes should trigger a structural change")
+		t.Fatal("adding a keyed element via Funcs should trigger a structural change")
 	}
 	if len(change.Added) != 1 || change.Added[0] != "item-c" {
 		t.Errorf("should report 'item-c' as added, got Added=%v", change.Added)

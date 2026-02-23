@@ -21,7 +21,7 @@ The JIT strategies distinguish between static and dynamic content:
 - `Text()`, `Textf()` - escaped dynamic text
 - `RawText()`, `RawTextf()` - unescaped dynamic text
 - `node.Condition()` - conditional rendering
-- `node.Func()`, `node.FuncNodes()` - function components
+- `node.Func()`, `node.Funcs()` - function components
 - `security.Sanitise()` - sanitised content validation
 
 ```go
@@ -260,7 +260,7 @@ func Page(title string, items []Item) node.Node {
 }
 
 func ItemList(items []Item) node.Node {
-    return node.FuncNodes(func() []node.Node {
+    return node.Funcs(func() []node.Node {
         nodes := make([]node.Node, len(items))
         for i, item := range items {
             nodes[i] = li.Text(item.Name)
