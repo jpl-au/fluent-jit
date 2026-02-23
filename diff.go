@@ -17,6 +17,12 @@ import (
 // each dynamic element across renders.
 var ErrDuplicateKey = fmt.Errorf("duplicate dynamic key in render tree")
 
+// SnapshotHint is the initial capacity hint in bytes for snapshot buffers.
+// Most keyed elements render to small HTML fragments, so 128 bytes avoids
+// an early grow in the common case. Adjust if your elements are typically
+// larger or smaller.
+var SnapshotHint = 128
+
 // Patch represents a targeted change to a dynamic element in the rendered output.
 // Key matches the value passed to .Dynamic("key") on the element.
 // HTML is the new rendered content for that element.
@@ -141,7 +147,7 @@ func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer) {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
-			buf := fluent.NewBuffer()
+			buf := fluent.NewBuffer(SnapshotHint)
 			n.RenderBuilder(buf)
 			snapshots[key] = buf
 			return
