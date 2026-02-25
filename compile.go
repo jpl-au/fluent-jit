@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/jpl-au/fluent"
@@ -289,13 +290,7 @@ func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *Executio
 	// Determine whether children need individual processing or if the
 	// entire subtree can be rendered as a single static chunk.
 	children := n.Nodes()
-	hasDynamicChildren := false
-	for _, child := range children {
-		if isDynamic(child) {
-			hasDynamicChildren = true
-			break
-		}
-	}
+	hasDynamicChildren := slices.ContainsFunc(children, isDynamic)
 
 	if hasDynamicChildren {
 		// Node has dynamic children — render opening/closing tags as static content,
@@ -325,4 +320,3 @@ func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *Executio
 		n.RenderBuilder(staticBuffer)
 	}
 }
-

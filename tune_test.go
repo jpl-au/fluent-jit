@@ -56,7 +56,7 @@ func TestTunerAdaptiveSizing(t *testing.T) {
 
 	// Render enough times for the sizer to collect its default 5 samples
 	// and establish a baseline buffer size.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tuner.Tune(tree).Render()
 	}
 
@@ -78,7 +78,7 @@ func TestTunerReset(t *testing.T) {
 	tree := div.New(span.Static("hello"))
 
 	// Let the sizer establish a baseline, then discard it.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tuner.Tune(tree).Render()
 	}
 

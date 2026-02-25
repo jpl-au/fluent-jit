@@ -17,7 +17,7 @@ func TestAdaptiveSizerSamplingPhase(t *testing.T) {
 
 	// Feed 4 of the default 5 samples — should remain in sampling phase
 	// because the sizer needs enough data before committing to a baseline
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		as.UpdateStats(100)
 	}
 
@@ -64,7 +64,7 @@ func TestAdaptiveSizerVarianceDetection(t *testing.T) {
 	as := NewAdaptiveSizer()
 
 	// Establish baseline of 115 (average 100 * 115% growthFactor)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		as.UpdateStats(100)
 	}
 
@@ -90,7 +90,7 @@ func TestAdaptiveSizerReset(t *testing.T) {
 	as := NewAdaptiveSizer()
 
 	// Establish baseline
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		as.UpdateStats(100)
 	}
 	if as.Active() {
@@ -120,7 +120,7 @@ func TestAdaptiveSizerConfigure(t *testing.T) {
 		t.Fatal("configure should restart sampling with new parameters")
 	}
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		as.UpdateStats(100)
 	}
 
@@ -142,7 +142,7 @@ func TestAdaptiveSizerResamplingEstablishesNewBaseline(t *testing.T) {
 	as := NewAdaptiveSizer()
 
 	// Establish initial baseline from small sizes
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		as.UpdateStats(100)
 	}
 	firstBaseline := as.GetBaseline()
@@ -155,7 +155,7 @@ func TestAdaptiveSizerResamplingEstablishesNewBaseline(t *testing.T) {
 
 	// Complete resampling with larger sizes — the deviation value (500)
 	// was seeded as the first sample, so we need 4 more
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		as.UpdateStats(500)
 	}
 
