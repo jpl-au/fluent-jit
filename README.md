@@ -81,7 +81,7 @@ jit.Flatten("footer", staticTemplate, w)
 
 ### Differ
 
-Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [fluent-poly](https://github.com/jpl-au/fluent-poly)'s reactive UI, but can be used standalone.
+Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [tether](https://github.com/jpl-au/tether)'s reactive UI, but can be used standalone.
 
 ```go
 differ := jit.NewDiffer()
@@ -119,6 +119,25 @@ if err := differ.Validate(tree); err != nil {
     log.Fatal(err)  // "duplicate dynamic key in render tree: "count""
 }
 ```
+
+### Snapshot persistence
+
+The Differ supports exporting and importing its snapshot state as opaque bytes, useful for offloading disconnected session data (e.g. via tether's `DiffStore` interface).
+
+```go
+// Export returns the snapshot data as raw bytes (nil if not seeded)
+data := differ.Export()
+
+// Import restores snapshots from a prior Export
+if err := differ.Import(data); err != nil {
+    log.Fatal(err)
+}
+
+// Clear releases snapshot buffers back to the pool
+differ.Clear()
+```
+
+The encoding is opaque — callers must not interpret or manipulate the bytes. `Export` is non-destructive and does not clear the Differ's state.
 
 ## Configuration
 

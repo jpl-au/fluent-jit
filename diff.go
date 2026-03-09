@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"slices"
@@ -78,6 +79,10 @@ func quotedKeys(keys []string) string {
 //  1. Render() on initial page load — returns full HTML, stores snapshots
 //  2. Diff() after each state change — returns patches for changed elements
 //  3. If Diff returns a *StructuralChange, call Render() again for a full re-render
+//
+// Snapshot data can be serialised for external storage via [Differ.Export],
+// restored with [Differ.Import], and freed with [Differ.Clear]. This
+// supports offloading disconnected session data to reduce memory usage.
 type Differ struct {
 	mu        sync.Mutex
 	snapshots map[string]*bytes.Buffer
@@ -206,6 +211,112 @@ func (d *Differ) returnBuffers() {
 	for _, buf := range d.snapshots {
 		fluent.PutBuffer(buf)
 	}
+}
+
+// Export returns the differ's snapshot data as raw bytes suitable for
+// external storage. The differ's internal state is unchanged — call
+// Clear to release the memory after a successful save. Returns nil if
+// the differ has not been seeded.
+//
+// The encoding is an internal detail. Callers must not interpret the
+// bytes — use Import to restore them.
+func (d *Differ) Export() []byte {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.seeded {
+		return nil
+	}
+
+	var buf bytes.Buffer
+
+	// Write snapshot count, then each key-value pair.
+	binary.Write(&buf, binary.LittleEndian, uint32(len(d.order)))
+	for _, key := range d.order {
+		binary.Write(&buf, binary.LittleEndian, uint32(len(key)))
+		buf.WriteString(key)
+		snap := d.snapshots[key]
+		binary.Write(&buf, binary.LittleEndian, uint32(snap.Len()))
+		buf.Write(snap.Bytes())
+	}
+
+	return buf.Bytes()
+}
+
+// Import restores snapshot data from a prior Export call. The differ is
+// marked as seeded after a successful import, allowing Diff to compare
+// against the restored snapshots.
+func (d *Differ) Import(data []byte) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	r := bytes.NewReader(data)
+
+	var count uint32
+	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
+		return fmt.Errorf("jit: import: reading snapshot count: %w", err)
+	}
+
+	snapshots := make(map[string]*bytes.Buffer, count)
+	order := make([]string, 0, count)
+
+	// returnParsed returns any buffers allocated so far back to the
+	// pool. Called on error so partial imports don't leak memory.
+	returnParsed := func() {
+		for _, buf := range snapshots {
+			fluent.PutBuffer(buf)
+		}
+	}
+
+	for range count {
+		var keyLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
+			returnParsed()
+			return fmt.Errorf("jit: import: reading key length: %w", err)
+		}
+		keyBytes := make([]byte, keyLen)
+		if _, err := io.ReadFull(r, keyBytes); err != nil {
+			returnParsed()
+			return fmt.Errorf("jit: import: reading key: %w", err)
+		}
+		key := string(keyBytes)
+
+		var valLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &valLen); err != nil {
+			returnParsed()
+			return fmt.Errorf("jit: import: reading value length: %w", err)
+		}
+
+		buf := fluent.NewBuffer(int(valLen))
+		if _, err := io.CopyN(buf, r, int64(valLen)); err != nil {
+			fluent.PutBuffer(buf)
+			returnParsed()
+			return fmt.Errorf("jit: import: reading value: %w", err)
+		}
+
+		snapshots[key] = buf
+		order = append(order, key)
+	}
+
+	// Release any existing buffers before replacing.
+	d.returnBuffers()
+	d.snapshots = snapshots
+	d.order = order
+	d.seeded = true
+	return nil
+}
+
+// Clear releases the differ's snapshot buffers back to the pool and
+// resets it to an unseeded state. Call this after a successful
+// DiffStore.Save to free the memory that Export copied out.
+func (d *Differ) Clear() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.returnBuffers()
+	d.snapshots = make(map[string]*bytes.Buffer)
+	d.order = nil
+	d.seeded = false
 }
 
 // collectSnapshots walks the tree depth-first and renders each keyed

@@ -585,6 +585,177 @@ func TestDifferFuncsExposesKeyedChildren(t *testing.T) {
 	}
 }
 
+// TestExportImportRoundTrip verifies that Export and Import preserve
+// the differ's snapshots across a round-trip. After importing, Diff
+// should detect changes against the restored baseline.
+func TestExportImportRoundTrip(t *testing.T) {
+	d1 := NewDiffer()
+	tree := div.New(
+		span.Text("Alice").Dynamic("name"),
+		span.Text("42").Dynamic("count"),
+	)
+	d1.Render(tree)
+
+	data := d1.Export()
+	if data == nil {
+		t.Fatal("Export should return non-nil after Render")
+	}
+
+	d2 := NewDiffer()
+	if err := d2.Import(data); err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	// Diff against the imported baseline with changed content.
+	changed := div.New(
+		span.Text("Bob").Dynamic("name"),
+		span.Text("42").Dynamic("count"),
+	)
+	patches, change := d2.Diff(changed)
+	if change != nil {
+		t.Error("same keys should not trigger a structural change")
+	}
+	if len(patches) != 1 || patches[0].Key != "name" {
+		t.Fatalf("expected 1 patch for 'name', got %d patches", len(patches))
+	}
+	if !bytes.Contains(patches[0].HTML, []byte("Bob")) {
+		t.Errorf("patch should contain 'Bob', got %q", patches[0].HTML)
+	}
+}
+
+// TestExportImportNoChange verifies that Diff returns no patches when
+// the tree is identical to the imported baseline.
+func TestExportImportNoChange(t *testing.T) {
+	d1 := NewDiffer()
+	tree := func() node.Node {
+		return div.New(span.Text("hello").Dynamic("msg"))
+	}
+	d1.Render(tree())
+
+	data := d1.Export()
+
+	d2 := NewDiffer()
+	if err := d2.Import(data); err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	patches, change := d2.Diff(tree())
+	if change != nil {
+		t.Error("identical tree should not trigger structural change")
+	}
+	if len(patches) != 0 {
+		t.Errorf("identical tree should produce no patches, got %d", len(patches))
+	}
+}
+
+// TestExportBeforeSeed verifies that Export returns nil when the
+// differ has not been seeded with an initial Render.
+func TestExportBeforeSeed(t *testing.T) {
+	d := NewDiffer()
+	if data := d.Export(); data != nil {
+		t.Errorf("Export before Render should return nil, got %d bytes", len(data))
+	}
+}
+
+// TestImportCorruptData verifies that Import returns an error when
+// given invalid data rather than panicking or silently producing
+// a broken state.
+func TestImportCorruptData(t *testing.T) {
+	d := NewDiffer()
+	if err := d.Import([]byte{0xFF}); err == nil {
+		t.Error("Import of corrupt data should return an error")
+	}
+}
+
+// TestClearFreesMemory verifies that Clear resets the differ to an
+// unseeded state. After Clear, Diff should behave as if Render was
+// never called, and Export should return nil.
+func TestClearFreesMemory(t *testing.T) {
+	d := NewDiffer()
+	tree := div.New(span.Text("hello").Dynamic("msg"))
+	d.Render(tree)
+
+	d.Clear()
+
+	if data := d.Export(); data != nil {
+		t.Error("Export after Clear should return nil")
+	}
+
+	patches, change := d.Diff(tree)
+	if change != nil {
+		t.Error("Diff after Clear should not signal structural change")
+	}
+	if patches != nil {
+		t.Error("Diff after Clear should return nil patches")
+	}
+}
+
+// TestClearThenRender verifies that a differ can be reused after Clear.
+// Clear → Render → Diff should work as if the differ was freshly created.
+func TestClearThenRender(t *testing.T) {
+	d := NewDiffer()
+	tree1 := div.New(span.Text("hello").Dynamic("msg"))
+	d.Render(tree1)
+	d.Clear()
+
+	tree2 := div.New(span.Text("world").Dynamic("msg"))
+	d.Render(tree2)
+
+	tree3 := div.New(span.Text("again").Dynamic("msg"))
+	patches, change := d.Diff(tree3)
+
+	if change != nil {
+		t.Error("same keys should not trigger structural change")
+	}
+	if len(patches) != 1 || patches[0].Key != "msg" {
+		t.Fatalf("expected 1 patch for 'msg', got %d", len(patches))
+	}
+}
+
+// TestExportDoesNotClearState verifies that Export is non-destructive.
+// The differ should still function normally after Export — Diff should
+// continue to work against the same baseline.
+func TestExportDoesNotClearState(t *testing.T) {
+	d := NewDiffer()
+	tree := func() node.Node {
+		return div.New(span.Text("hello").Dynamic("msg"))
+	}
+	d.Render(tree())
+
+	_ = d.Export()
+
+	// Differ should still work — Export didn't destroy anything.
+	changed := div.New(span.Text("world").Dynamic("msg"))
+	patches, change := d.Diff(changed)
+	if change != nil {
+		t.Error("same keys should not trigger structural change")
+	}
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+}
+
+// TestImportStructuralChange verifies that after Import, the differ
+// detects structural changes when the new tree has different keys.
+func TestImportStructuralChange(t *testing.T) {
+	d1 := NewDiffer()
+	d1.Render(div.New(span.Text("hello").Dynamic("msg")))
+
+	data := d1.Export()
+
+	d2 := NewDiffer()
+	if err := d2.Import(data); err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	// Different key set — should be a structural change.
+	different := div.New(span.Text("hello").Dynamic("other"))
+	_, change := d2.Diff(different)
+	if change == nil {
+		t.Fatal("different keys should trigger a structural change")
+	}
+}
+
 // buildKeyedTree creates a tree with n keyed span elements, simulating
 // a page with many dynamic components.
 func buildKeyedTree(n int, prefix string) node.Node {
