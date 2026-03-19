@@ -16,7 +16,7 @@
 //
 //  4. Differ: Tracks keyed dynamic elements across renders and produces
 //     targeted patches for live updates. This is the diff engine behind
-//     tether's reactive UI, but can be used standalone. Mark elements
+//     Tether's reactive UI, but can be used standalone. Mark elements
 //     with .Dynamic("key") to enable tracking. Snapshot data can be
 //     serialised via [Differ.Export] and restored with [Differ.Import]
 //     for external storage of disconnected session data.

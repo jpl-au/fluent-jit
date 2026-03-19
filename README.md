@@ -81,7 +81,7 @@ jit.Flatten("footer", staticTemplate, w)
 
 ### Differ
 
-Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [tether](https://github.com/jpl-au/tether)'s reactive UI, but can be used standalone.
+Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [Tether](https://github.com/jpl-au/tether)'s reactive UI, but can be used standalone.
 
 ```go
 differ := jit.NewDiffer()
@@ -122,7 +122,7 @@ if err := differ.Validate(tree); err != nil {
 
 ### Snapshot persistence
 
-The Differ supports exporting and importing its snapshot state as opaque bytes, useful for offloading disconnected session data (e.g. via tether's `DiffStore` interface).
+The Differ supports exporting and importing its snapshot state as opaque bytes, useful for offloading disconnected session data (e.g. via Tether's `DiffStore` interface).
 
 ```go
 // Export returns the snapshot data as raw bytes (nil if not seeded)

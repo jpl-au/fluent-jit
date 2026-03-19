@@ -357,7 +357,7 @@ compiler.Render(div.New(span.Text("World")), w)  // Different structure - may pr
 
 ## Differ
 
-The Differ tracks rendered output of keyed dynamic nodes across renders and produces targeted patches when content changes. It is the engine behind tether's live updates, but can be used standalone.
+The Differ tracks rendered output of keyed dynamic nodes across renders and produces targeted patches when content changes. It is the engine behind Tether's live updates, but can be used standalone.
 
 ### Lifecycle
 
@@ -400,13 +400,13 @@ differ.Import(data)       // Restore from prior export
 - `change.Reordered` — same keys, different order
 - `change.String()` — human-readable description (e.g. `"key 'help' added"`, `"keys reordered"`)
 
-tether uses this to log actionable diagnostics so developers know when and why a root morph was triggered.
+Tether uses this to log actionable diagnostics so developers know when and why a root morph was triggered.
 
 **Pooled buffers.** Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid allocation overhead. Old snapshots are returned to the pool before new ones are collected.
 
 **Validation.** `Differ.Validate(tree)` checks for duplicate dynamic keys. Duplicate keys cause the diff engine to lose track of elements — only the last one visited would be stored. Returns `ErrDuplicateKey` for programmatic checking.
 
-**Snapshot persistence.** Three methods support serialising and restoring Differ state, used by tether's `DiffStore` interface to offload disconnected session data:
+**Snapshot persistence.** Three methods support serialising and restoring Differ state, used by Tether's `DiffStore` interface to offload disconnected session data:
 
 - `Export() []byte` — serialises all snapshot data into an opaque byte slice. Returns nil if the Differ has not been seeded (no prior `Render`). Non-destructive — the Differ's state is unchanged after export.
 - `Import([]byte) error` — restores snapshots from bytes previously returned by `Export`. The internal encoding is a binary format using length-prefixed keys and values. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
