@@ -24,7 +24,7 @@ var (
 // Warning: The global registry grows indefinitely. Do not use dynamic IDs
 // without manually calling ResetCompile(id) to free memory.
 func Compile(id string, n node.Node, w ...io.Writer) []byte {
-	// Load first to avoid allocating a NewCompiler on every call — LoadOrStore
+	// Load first to avoid allocating a NewCompiler on every call - LoadOrStore
 	// evaluates its arguments eagerly, so calling it directly would allocate
 	// even when the key already exists.
 	val, loaded := compilers.Load(id)

@@ -103,7 +103,7 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 // compiled execution plan. It walks each DynamicPath in the plan and verifies
 // that the path resolves to a valid node in the provided tree.
 //
-// This is a diagnostic tool for tests and development — it should NOT be called
+// This is a diagnostic tool for tests and development - it should NOT be called
 // in production because it adds overhead to every render. In production, a
 // structure mismatch will produce visibly broken output, which is sufficient
 // signal to investigate.
@@ -121,20 +121,20 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 func (jc *Compiler) Validate(root node.Node) error {
 	plan := jc.executionPlan
 	if plan == nil {
-		return nil // no plan compiled yet — nothing to validate against
+		return nil // no plan compiled yet - nothing to validate against
 	}
 
 	for _, element := range plan.Elements {
 		dp, ok := element.(*DynamicPath)
 		if !ok {
-			continue // static content — always valid
+			continue // static content - always valid
 		}
 
 		n := root
 		for depth, idx := range dp.Path {
 			children := n.Nodes()
 			if idx >= len(children) {
-				return fmt.Errorf("%w: path %v failed at depth %d — expected child index %d but node only has %d children",
+				return fmt.Errorf("%w: path %v failed at depth %d - expected child index %d but node only has %d children",
 					ErrStructureMismatch, dp.Path, depth, idx, len(children))
 			}
 			n = children[idx]
@@ -178,7 +178,7 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 		if jc.shouldUpdateStats(predictedSize, actualSize) {
 			jc.sizer.UpdateStats(actualSize)
 		}
-		// Write errors are not actionable mid-render — a closed connection can't be
+		// Write errors are not actionable mid-render - a closed connection can't be
 		// recovered, and the caller controls the writer's error handling.
 		_, _ = buf.WriteTo(w[0])
 		fluent.PutBuffer(buf)
@@ -212,7 +212,7 @@ func (jc *Compiler) compile(rootNode node.Node) *ExecutionPlan {
 	var staticBuffer bytes.Buffer
 
 	// Build execution plan by walking tree and compiling static/dynamic elements.
-	// The empty path slice tracks position in the tree — extended with child indices
+	// The empty path slice tracks position in the tree - extended with child indices
 	// as we recurse, so dynamic nodes can record how to navigate back to themselves.
 	jc.walk(rootNode, &staticBuffer, plan, []int{})
 
@@ -242,7 +242,7 @@ func (jc *Compiler) compile(rootNode node.Node) *ExecutionPlan {
 // Only updates when the actual size deviates significantly from our prediction,
 // reducing overhead while maintaining buffer optimisation.
 func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
-	// No baseline yet — must update to begin establishing one
+	// No baseline yet - must update to begin establishing one
 	if predicted == 0 {
 		return true
 	}
@@ -266,20 +266,20 @@ func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 // - On render, the path is traversed on the NEW tree to get fresh values.
 // - This enables re-evaluation of dynamic content with different data.
 func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *ExecutionPlan, path []int) {
-	// Attributes (e.g. .Class(variable)) are treated as static after first render —
+	// Attributes (e.g. .Class(variable)) are treated as static after first render  - 
 	// their values are frozen at compile time. Use Tune() if values must change between renders.
 	if isDynamicNode(n) {
 		// Flush accumulated static content before recording the dynamic path,
 		// so the execution plan preserves the correct rendering order.
 		if staticBuffer.Len() > 0 {
 			plan.Elements = append(plan.Elements, &StaticContent{
-				Content: append([]byte{}, staticBuffer.Bytes()...), // copy — staticBuffer is reset and reused below
+				Content: append([]byte{}, staticBuffer.Bytes()...), // copy - staticBuffer is reset and reused below
 			})
 			staticBuffer.Reset()
 		}
 
 		// Explicit copy because append(path, i) in the loop below may share
-		// the same backing array — without a copy, stored paths could be
+		// the same backing array - without a copy, stored paths could be
 		// silently corrupted by later iterations.
 		pathCopy := make([]int, len(path))
 		copy(pathCopy, path)
@@ -293,7 +293,7 @@ func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *Executio
 	hasDynamicChildren := slices.ContainsFunc(children, isDynamic)
 
 	if hasDynamicChildren {
-		// Node has dynamic children — render opening/closing tags as static content,
+		// Node has dynamic children - render opening/closing tags as static content,
 		// but process children individually so dynamic ones get their own paths.
 		if elem, ok := n.(node.Element); ok {
 			elem.RenderOpen(staticBuffer)
@@ -309,14 +309,14 @@ func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *Executio
 
 			elem.RenderClose(staticBuffer)
 		} else {
-			// Non-Element container (e.g. Fragment) — no opening/closing tags to render
+			// Non-Element container (e.g. Fragment) - no opening/closing tags to render
 			for i, child := range children {
 				childPath := append(path, i)
 				jc.walk(child, staticBuffer, plan, childPath)
 			}
 		}
 	} else {
-		// Entirely static subtree — render directly for merging with adjacent static content
+		// Entirely static subtree - render directly for merging with adjacent static content
 		n.RenderBuilder(staticBuffer)
 	}
 }

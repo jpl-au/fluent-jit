@@ -15,7 +15,7 @@ import (
 
 // TestCompilerStaticOnly verifies the simplest case: a fully static tree.
 // When there are no dynamic nodes, the compiler should produce the exact
-// same output as standard rendering — the optimisation should be invisible.
+// same output as standard rendering - the optimisation should be invisible.
 func TestCompilerStaticOnly(t *testing.T) {
 	compiler := NewCompiler()
 
@@ -31,7 +31,7 @@ func TestCompilerStaticOnly(t *testing.T) {
 // TestCompilerDynamicContentReEvaluated verifies the core property of the
 // compiler: static content is frozen from the first render, but dynamic
 // content is re-evaluated on each subsequent render using the new tree.
-// This is the fundamental correctness guarantee — if dynamic content is
+// This is the fundamental correctness guarantee - if dynamic content is
 // accidentally frozen, users would see stale data.
 func TestCompilerDynamicContentReEvaluated(t *testing.T) {
 	compiler := NewCompiler()
@@ -56,13 +56,13 @@ func TestCompilerDynamicContentReEvaluated(t *testing.T) {
 		t.Errorf("first render should contain dynamic content 'Alice', got %q", result1)
 	}
 	if !strings.Contains(result2, "Bob") {
-		t.Errorf("second render should re-evaluate dynamic content to 'Bob', got %q — content may have been frozen", result2)
+		t.Errorf("second render should re-evaluate dynamic content to 'Bob', got %q - content may have been frozen", result2)
 	}
 
-	// Static portion should be identical in both renders — it was frozen
+	// Static portion should be identical in both renders - it was frozen
 	// during the first render and should never change.
 	if !strings.Contains(result1, "Hello ") || !strings.Contains(result2, "Hello ") {
-		t.Errorf("static content 'Hello ' should be preserved in both renders — plan may have dropped static segments")
+		t.Errorf("static content 'Hello ' should be preserved in both renders - plan may have dropped static segments")
 	}
 }
 
@@ -78,7 +78,7 @@ func TestCompilerRenderToWriter(t *testing.T) {
 	result := compiler.Render(tree, &buf)
 
 	if result != nil {
-		t.Error("Render should return nil when writing to a writer — returning bytes would mean double allocation")
+		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -88,7 +88,7 @@ func TestCompilerRenderToWriter(t *testing.T) {
 }
 
 // TestCompilerWithConditional verifies that node.When conditionals are
-// treated as dynamic — re-evaluated on each render. The condition's boolean
+// treated as dynamic - re-evaluated on each render. The condition's boolean
 // may change between renders, so the compiler must never freeze the branch.
 func TestCompilerWithConditional(t *testing.T) {
 	compiler := NewCompiler()
@@ -111,7 +111,7 @@ func TestCompilerWithConditional(t *testing.T) {
 		t.Errorf("conditional with true should render its child, got %q", result1)
 	}
 	if strings.Contains(result2, "active") {
-		t.Errorf("conditional with false should omit its child, got %q — condition may have been frozen from first render", result2)
+		t.Errorf("conditional with false should omit its child, got %q - condition may have been frozen from first render", result2)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestCompilerWithFuncComponent(t *testing.T) {
 		t.Errorf("first render should evaluate Func closure to 'Alice', got %q", result1)
 	}
 	if !strings.Contains(result2, "Bob") {
-		t.Errorf("second render should evaluate new Func closure to 'Bob', got %q — closure output may have been frozen", result2)
+		t.Errorf("second render should evaluate new Func closure to 'Bob', got %q - closure output may have been frozen", result2)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestCompilerWithConfiguration(t *testing.T) {
 }
 
 // TestCompilerValidateCompatibleTree verifies that Validate returns nil when
-// the tree structure matches the compiled plan. This is the happy path — the
+// the tree structure matches the compiled plan. This is the happy path - the
 // tree has the same shape as the one used to build the plan, so all dynamic
 // paths resolve correctly.
 func TestCompilerValidateCompatibleTree(t *testing.T) {
@@ -194,7 +194,7 @@ func TestCompilerValidateCompatibleTree(t *testing.T) {
 	original := div.New(span.Static("Hello "), span.Text("Alice"))
 	compiler.Render(original)
 
-	// Same structure, different dynamic content — should validate fine.
+	// Same structure, different dynamic content - should validate fine.
 	compatible := div.New(span.Static("Hello "), span.Text("Bob"))
 	if err := compiler.Validate(compatible); err != nil {
 		t.Errorf("structurally identical tree should pass validation, got: %v", err)
@@ -204,7 +204,7 @@ func TestCompilerValidateCompatibleTree(t *testing.T) {
 // TestCompilerValidateIncompatibleTree verifies that Validate returns
 // ErrStructureMismatch when the tree has fewer children than the compiled
 // plan expects. This catches the case where someone passes a structurally
-// different tree to a compiled template — which would produce truncated
+// different tree to a compiled template - which would produce truncated
 // output at render time.
 func TestCompilerValidateIncompatibleTree(t *testing.T) {
 	compiler := NewCompiler()
@@ -213,11 +213,11 @@ func TestCompilerValidateIncompatibleTree(t *testing.T) {
 	original := div.New(span.Static("Hello "), span.Text("Alice"))
 	compiler.Render(original)
 
-	// Tree with fewer children — the dynamic path [1] no longer exists.
+	// Tree with fewer children - the dynamic path [1] no longer exists.
 	incompatible := div.New(span.Static("Hello "))
 	err := compiler.Validate(incompatible)
 	if err == nil {
-		t.Fatal("structurally different tree should fail validation — missing child would cause truncated output")
+		t.Fatal("structurally different tree should fail validation - missing child would cause truncated output")
 	}
 	if !errors.Is(err, ErrStructureMismatch) {
 		t.Errorf("error should wrap ErrStructureMismatch for programmatic checking, got: %v", err)
@@ -225,7 +225,7 @@ func TestCompilerValidateIncompatibleTree(t *testing.T) {
 }
 
 // TestCompilerValidateBeforeCompile verifies that Validate returns nil when
-// called before any Render — there is no plan to validate against yet, so
+// called before any Render - there is no plan to validate against yet, so
 // there is nothing that could be incompatible.
 func TestCompilerValidateBeforeCompile(t *testing.T) {
 	compiler := NewCompiler()

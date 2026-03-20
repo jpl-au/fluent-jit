@@ -11,7 +11,7 @@ import (
 
 // TestGlobalCompile verifies the package-level Compile function, which manages
 // a global sync.Map of Compiler instances keyed by ID. This is the primary API
-// for most users — it avoids manual compiler lifecycle management.
+// for most users - it avoids manual compiler lifecycle management.
 func TestGlobalCompile(t *testing.T) {
 	defer ResetCompile()
 
@@ -35,7 +35,7 @@ func TestGlobalCompileToWriter(t *testing.T) {
 	result := Compile("test-compile-writer", tree, &buf)
 
 	if result != nil {
-		t.Error("Compile should return nil when writing to a writer — returning bytes would mean double allocation")
+		t.Error("Compile should return nil when writing to a writer - returning bytes would mean double allocation")
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -47,7 +47,7 @@ func TestGlobalCompileToWriter(t *testing.T) {
 // TestGlobalCompileReusesInstance verifies that the same ID always returns the
 // same compiler instance. The first call creates the compiler and builds the
 // execution plan; subsequent calls reuse it. Dynamic content must still change
-// between renders — only static content is frozen.
+// between renders - only static content is frozen.
 func TestGlobalCompileReusesInstance(t *testing.T) {
 	defer ResetCompile()
 
@@ -63,7 +63,7 @@ func TestGlobalCompileReusesInstance(t *testing.T) {
 		t.Errorf("first render should contain dynamic content 'Alice', got %q", result1)
 	}
 	if !strings.Contains(result2, "Bob") {
-		t.Errorf("second render should re-evaluate dynamic content to 'Bob', got %q — compiler may not be reusing correctly", result2)
+		t.Errorf("second render should re-evaluate dynamic content to 'Bob', got %q - compiler may not be reusing correctly", result2)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestGlobalFlattenStatic(t *testing.T) {
 		t.Errorf("global Flatten should produce correct output:\n  got  %q\n  want %q", result, expected)
 	}
 
-	// Second call should return the cached bytes — no re-rendering.
+	// Second call should return the cached bytes - no re-rendering.
 	result2 := string(Flatten("test-flatten", tree))
 	if result2 != expected {
 		t.Errorf("cached Flatten result should be identical:\n  got  %q\n  want %q", result2, expected)
@@ -107,11 +107,11 @@ func TestGlobalFlattenStatic(t *testing.T) {
 // the global Flatten function. Unlike NewFlattener (which returns an error for
 // dynamic content), the global Flatten silently falls back to standard rendering.
 // This avoids disrupting request handlers where returning an error would be
-// impractical — the output is correct, just not cached.
+// impractical - the output is correct, just not cached.
 func TestGlobalFlattenDynamicFallback(t *testing.T) {
 	defer ResetFlatten()
 
-	// span.Text is dynamic — NewFlattener would reject this, but the global
+	// span.Text is dynamic - NewFlattener would reject this, but the global
 	// Flatten should fall back to standard rendering and still produce output.
 	tree := div.New(span.Text("hello"))
 	result := string(Flatten("test-flatten-dynamic", tree))
@@ -132,7 +132,7 @@ func TestGlobalFlattenToWriter(t *testing.T) {
 	result := Flatten("test-flatten-writer", tree, &buf)
 
 	if result != nil {
-		t.Error("Flatten should return nil when writing to a writer — returning bytes would mean double allocation")
+		t.Error("Flatten should return nil when writing to a writer - returning bytes would mean double allocation")
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -149,10 +149,10 @@ func TestResetCompile(t *testing.T) {
 	Compile("reset-a", tree)
 	Compile("reset-b", tree)
 
-	// Reset a specific ID — only "reset-a" should be cleared.
+	// Reset a specific ID - only "reset-a" should be cleared.
 	ResetCompile("reset-a")
 
-	// Reset all — clears every remaining entry.
+	// Reset all - clears every remaining entry.
 	ResetCompile()
 }
 

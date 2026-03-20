@@ -8,7 +8,7 @@ import (
 )
 
 // Flattener holds pre-rendered static content as bytes.
-// This is the instance API for static content rendering — no map lookups,
+// This is the instance API for static content rendering - no map lookups,
 // just direct byte access. Ideal for maximum performance with static templates.
 type Flattener struct {
 	bytes []byte // pre-rendered static content
@@ -30,7 +30,7 @@ func NewFlattener(n node.Node) (*Flattener, error) {
 }
 
 // Render writes the pre-rendered bytes to the writer or returns them.
-// No rendering logic is executed — this is a direct byte slice write.
+// No rendering logic is executed - this is a direct byte slice write.
 func (f *Flattener) Render(w ...io.Writer) []byte {
 	if len(w) > 0 && w[0] != nil {
 		_, _ = w[0].Write(f.bytes)

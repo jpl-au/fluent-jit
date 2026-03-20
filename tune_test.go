@@ -9,7 +9,7 @@ import (
 )
 
 // TestTunerRender verifies basic rendering through the tuner. The tuner wraps
-// standard fluent rendering with adaptive buffer sizing — this test confirms
+// standard fluent rendering with adaptive buffer sizing - this test confirms
 // that the wrapping doesn't alter the output. Dynamic content (span.Text) is
 // used to ensure the tuner handles the general case, not just static trees.
 func TestTunerRender(t *testing.T) {
@@ -35,7 +35,7 @@ func TestTunerRenderToWriter(t *testing.T) {
 	result := tuner.Tune(tree).Render(&buf)
 
 	if result != nil {
-		t.Error("Render should return nil when writing to a writer — returning bytes would mean double allocation")
+		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -47,7 +47,7 @@ func TestTunerRenderToWriter(t *testing.T) {
 // TestTunerAdaptiveSizing verifies that the tuner produces correct output
 // after the adaptive sizer transitions from sampling to baseline phase. The
 // sizer changes the internal buffer allocation strategy after collecting
-// enough samples — this test confirms that the transition doesn't corrupt
+// enough samples - this test confirms that the transition doesn't corrupt
 // or truncate the rendered output.
 func TestTunerAdaptiveSizing(t *testing.T) {
 	tuner := NewTuner()

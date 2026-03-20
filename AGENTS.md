@@ -364,10 +364,10 @@ The Differ tracks rendered output of keyed dynamic nodes across renders and prod
 ```go
 differ := jit.NewDiffer()
 
-// 1. Initial render — stores snapshots of all keyed elements
+// 1. Initial render - stores snapshots of all keyed elements
 html := differ.Render(tree)
 
-// 2. After state change — compare against stored snapshots
+// 2. After state change - compare against stored snapshots
 patches, change := differ.Diff(newTree)
 
 // 3. If change is non-nil, keys were added/removed/reordered
@@ -389,28 +389,28 @@ differ.Import(data)       // Restore from prior export
 
 ### Key concepts
 
-**Outermost key tracking.** `collectSnapshots` walks the tree depth-first but stops recursing once a keyed node is found. If a parent and child are both keyed, only the parent is tracked — a change to the child is naturally captured in the parent's rendered output.
+**Outermost key tracking.** `collectSnapshots` walks the tree depth-first but stops recursing once a keyed node is found. If a parent and child are both keyed, only the parent is tracked - a change to the child is naturally captured in the parent's rendered output.
 
 **Key order detection.** The Differ tracks keys in tree-walk order, not just as a set. This means reordering keyed elements (e.g. sorting a list) triggers a structural change, even when the same keys are present.
 
 **Structural change diagnostics.** When `Diff()` returns a `*StructuralChange`, it reports exactly what happened:
 
-- `change.Added` — keys in the new tree that weren't in the old
-- `change.Removed` — keys in the old tree that aren't in the new
-- `change.Reordered` — same keys, different order
-- `change.String()` — human-readable description (e.g. `"key 'help' added"`, `"keys reordered"`)
+- `change.Added` - keys in the new tree that weren't in the old
+- `change.Removed` - keys in the old tree that aren't in the new
+- `change.Reordered` - same keys, different order
+- `change.String()` - human-readable description (e.g. `"key 'help' added"`, `"keys reordered"`)
 
 Tether uses this to log actionable diagnostics so developers know when and why a root morph was triggered.
 
 **Pooled buffers.** Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid allocation overhead. Old snapshots are returned to the pool before new ones are collected.
 
-**Validation.** `Differ.Validate(tree)` checks for duplicate dynamic keys. Duplicate keys cause the diff engine to lose track of elements — only the last one visited would be stored. Returns `ErrDuplicateKey` for programmatic checking.
+**Validation.** `Differ.Validate(tree)` checks for duplicate dynamic keys. Duplicate keys cause the diff engine to lose track of elements - only the last one visited would be stored. Returns `ErrDuplicateKey` for programmatic checking.
 
 **Snapshot persistence.** Three methods support serialising and restoring Differ state, used by Tether's `DiffStore` interface to offload disconnected session data:
 
-- `Export() []byte` — serialises all snapshot data into an opaque byte slice. Returns nil if the Differ has not been seeded (no prior `Render`). Non-destructive — the Differ's state is unchanged after export.
-- `Import([]byte) error` — restores snapshots from bytes previously returned by `Export`. The internal encoding is a binary format using length-prefixed keys and values. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
-- `Clear()` — releases all snapshot buffers back to `fluent.PutBuffer` and resets the Differ to its zero state. Useful after exporting when the Differ is no longer needed.
+- `Export() []byte` - serialises all snapshot data into an opaque byte slice. Returns nil if the Differ has not been seeded (no prior `Render`). Non-destructive - the Differ's state is unchanged after export.
+- `Import([]byte) error` - restores snapshots from bytes previously returned by `Export`. The internal encoding is a binary format using length-prefixed keys and values. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
+- `Clear()` - releases all snapshot buffers back to `fluent.PutBuffer` and resets the Differ to its zero state. Useful after exporting when the Differ is no longer needed.
 
 ### Dynamic keys
 
@@ -418,8 +418,8 @@ Elements are marked dynamic with `.Dynamic("key")`:
 
 ```go
 span.Text(count).Dynamic("count")  // Tracked by the Differ
-span.Text(value).Dynamic()          // "_" sentinel — JIT-dynamic but not diff-tracked
-span.Static("hello")                // Static — invisible to the Differ
+span.Text(value).Dynamic()          // "_" sentinel - JIT-dynamic but not diff-tracked
+span.Static("hello")                // Static - invisible to the Differ
 ```
 
 ## Package Structure
@@ -438,7 +438,7 @@ fluent-jit/
 
 ## Profile-Guided Optimization (PGO)
 
-Applications using Fluent JIT benefit from [PGO](https://go.dev/doc/pgo) (Go 1.21+). Collect a CPU profile from production, place it as `default.pgo` in the main package, and `go build` applies it automatically. Expect 10-20% speed improvements across compile, tune, and flatten paths with no code changes. Allocations are unaffected — PGO improves inlining decisions only.
+Applications using Fluent JIT benefit from [PGO](https://go.dev/doc/pgo) (Go 1.21+). Collect a CPU profile from production, place it as `default.pgo` in the main package, and `go build` applies it automatically. Expect 10-20% speed improvements across compile, tune, and flatten paths with no code changes. Allocations are unaffected - PGO improves inlining decisions only.
 
 ## License
 

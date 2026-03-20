@@ -15,7 +15,7 @@ func TestAdaptiveSizerSamplingPhase(t *testing.T) {
 		t.Fatal("baseline should be zero before any samples are collected")
 	}
 
-	// Feed 4 of the default 5 samples — should remain in sampling phase
+	// Feed 4 of the default 5 samples - should remain in sampling phase
 	// because the sizer needs enough data before committing to a baseline
 	for range 4 {
 		as.UpdateStats(100)
@@ -84,7 +84,7 @@ func TestAdaptiveSizerVarianceDetection(t *testing.T) {
 }
 
 // TestAdaptiveSizerReset verifies that Reset returns the sizer to its initial
-// state — sampling phase with no baseline — so it can re-learn buffer sizes
+// state - sampling phase with no baseline - so it can re-learn buffer sizes
 // from scratch when content patterns change significantly.
 func TestAdaptiveSizerReset(t *testing.T) {
 	as := NewAdaptiveSizer()
@@ -153,7 +153,7 @@ func TestAdaptiveSizerResamplingEstablishesNewBaseline(t *testing.T) {
 		t.Fatal("large deviation (500 vs baseline 115) should trigger resampling")
 	}
 
-	// Complete resampling with larger sizes — the deviation value (500)
+	// Complete resampling with larger sizes - the deviation value (500)
 	// was seeded as the first sample, so we need 4 more
 	for range 4 {
 		as.UpdateStats(500)

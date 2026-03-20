@@ -9,7 +9,7 @@ import (
 	"github.com/jpl-au/fluent/node"
 )
 
-// TestIsDynamicNode verifies single-node classification — the check that
+// TestIsDynamicNode verifies single-node classification - the check that
 // determines whether a node itself produces different output across renders.
 // This is distinct from isDynamic (below) which checks an entire subtree.
 // Getting this wrong means the compiler will either freeze dynamic content
@@ -23,11 +23,11 @@ func TestIsDynamicNode(t *testing.T) {
 		// Static elements never change, so they can be frozen safely.
 		{"static element", div.Static("hello"), false},
 
-		// An element with a dynamic child is NOT itself dynamic — only its
+		// An element with a dynamic child is NOT itself dynamic - only its
 		// subtree is. The compiler handles this by walking children separately.
 		{"element with dynamic child is not itself dynamic", div.Text("hello"), false},
 
-		// A bare element (no children) is static — it always renders the same tags.
+		// A bare element (no children) is static - it always renders the same tags.
 		{"bare element", div.New(), false},
 
 		// Function components must be re-evaluated every render because their
@@ -43,7 +43,7 @@ func TestIsDynamicNode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isDynamicNode(tt.node); got != tt.dynamic {
-				t.Errorf("isDynamicNode(%s) = %v, want %v — misclassification will cause the compiler to %s",
+				t.Errorf("isDynamicNode(%s) = %v, want %v - misclassification will cause the compiler to %s",
 					tt.name, got, tt.dynamic,
 					map[bool]string{
 						true:  "wastefully re-evaluate static content",
@@ -54,7 +54,7 @@ func TestIsDynamicNode(t *testing.T) {
 	}
 }
 
-// TestIsDynamic verifies recursive subtree classification — the check that
+// TestIsDynamic verifies recursive subtree classification - the check that
 // determines whether any node in a tree requires re-evaluation. The compiler
 // uses this to decide whether a subtree can be frozen as a single static
 // chunk or must be walked node-by-node on each render.
@@ -64,7 +64,7 @@ func TestIsDynamic(t *testing.T) {
 		node    node.Node
 		dynamic bool
 	}{
-		// Fully static trees can be frozen entirely — no per-render work needed.
+		// Fully static trees can be frozen entirely - no per-render work needed.
 		{"fully static tree", div.New(span.Static("hello")), false},
 
 		// A single dynamic child anywhere in the tree makes the whole subtree dynamic,
@@ -92,7 +92,7 @@ func TestIsDynamic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isDynamic(tt.node); got != tt.dynamic {
-				t.Errorf("isDynamic(%s) = %v, want %v — the compiler will incorrectly %s this subtree",
+				t.Errorf("isDynamic(%s) = %v, want %v - the compiler will incorrectly %s this subtree",
 					tt.name, got, tt.dynamic,
 					map[bool]string{
 						true:  "walk",

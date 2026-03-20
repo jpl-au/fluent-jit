@@ -12,15 +12,15 @@ import (
 // 2. Baseline Phase: Uses established size with variance monitoring for pattern changes.
 //
 // Performance characteristics:
-// - Hot path (GetBaseline): lock-free atomic read — called on every render.
+// - Hot path (GetBaseline): lock-free atomic read - called on every render.
 // - Warm path (variance checks): occasional mutex for pattern change detection.
 // - Cold path (sampling): mutex for statistical calculations during startup.
 type AdaptiveSizer struct {
-	// Atomic fields — read on every render without locking
+	// Atomic fields - read on every render without locking
 	baseline int64 // current optimal buffer size (atomic)
 	active   int64 // 1 if sampling, 0 if using baseline (atomic)
 
-	// Mutex-protected fields — only accessed during phase transitions
+	// Mutex-protected fields - only accessed during phase transitions
 	mu           sync.Mutex
 	sum          int // running sum during sampling phase
 	count        int // sample count during sampling phase
@@ -70,7 +70,7 @@ func (as *AdaptiveSizer) Configure(max int, variance, growthFactor int) {
 }
 
 // GetBaseline returns the current optimal buffer size.
-// This is the hot path — called on every render — so it uses a lock-free
+// This is the hot path - called on every render - so it uses a lock-free
 // atomic read to avoid contention.
 func (as *AdaptiveSizer) GetBaseline() int {
 	return int(atomic.LoadInt64(&as.baseline))
@@ -113,7 +113,7 @@ func (as *AdaptiveSizer) sample(size int) {
 	defer as.mu.Unlock()
 
 	// Another goroutine may have completed sampling between the Active() check
-	// and acquiring the lock — re-check to avoid corrupting a fresh baseline
+	// and acquiring the lock - re-check to avoid corrupting a fresh baseline
 	if atomic.LoadInt64(&as.active) == 0 {
 		return
 	}
@@ -146,7 +146,7 @@ func (as *AdaptiveSizer) check(size int) {
 	// This avoids floating point on the hot path
 	diff := abs(size - baseline)
 	if diff*100 > baseline*as.variance {
-		// Significant change detected — restart sampling to establish a new baseline
+		// Significant change detected - restart sampling to establish a new baseline
 		as.mu.Lock()
 		as.sum = size // seed new sampling with the value that triggered the change
 		as.count = 1

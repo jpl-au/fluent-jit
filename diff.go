@@ -73,11 +73,11 @@ func quotedKeys(keys []string) string {
 // Differ tracks rendered output of keyed dynamic nodes across renders and
 // produces targeted patches when their content changes.
 //
-// Each session should own its own Differ — they are not shared across sessions.
+// Each session should own its own Differ - they are not shared across sessions.
 // The typical lifecycle is:
 //
-//  1. Render() on initial page load — returns full HTML, stores snapshots
-//  2. Diff() after each state change — returns patches for changed elements
+//  1. Render() on initial page load - returns full HTML, stores snapshots
+//  2. Diff() after each state change - returns patches for changed elements
 //  3. If Diff returns a *StructuralChange, call Render() again for a full re-render
 //
 // Snapshot data can be serialised for external storage via [Differ.Export],
@@ -124,7 +124,7 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 // The patches slice is nil if nothing changed.
 //
 // Returns (nil, *StructuralChange) when keys were added, removed, or
-// reordered — the caller should use Render for a full re-render and
+// reordered - the caller should use Render for a full re-render and
 // can use the StructuralChange for diagnostics.
 //
 // Returns (nil, nil) if Render has not been called yet.
@@ -140,7 +140,7 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	var currentOrder []string
 	collectSnapshots(root, current, &currentOrder)
 
-	// Structural change — keys were added, removed, or reordered.
+	// Structural change - keys were added, removed, or reordered.
 	// Comparing the ordered slices catches all three cases in one check.
 	if !slices.Equal(d.order, currentOrder) {
 		for _, buf := range current {
@@ -214,12 +214,12 @@ func (d *Differ) returnBuffers() {
 }
 
 // Export returns the differ's snapshot data as raw bytes suitable for
-// external storage. The differ's internal state is unchanged — call
+// external storage. The differ's internal state is unchanged - call
 // Clear to release the memory after a successful save. Returns nil if
 // the differ has not been seeded.
 //
 // The encoding is an internal detail. Callers must not interpret the
-// bytes — use Import to restore them.
+// bytes - use Import to restore them.
 func (d *Differ) Export() []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -328,7 +328,7 @@ func (d *Differ) Clear() {
 //
 // Once a keyed node is found its children are not searched for further
 // keys. This avoids redundant patches when both a parent and child are
-// keyed — only the outermost key is tracked.
+// keyed - only the outermost key is tracked.
 func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
@@ -348,7 +348,7 @@ func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]
 }
 
 // validateKeys walks the tree depth-first and checks for duplicate dynamic
-// keys. Unlike collectSnapshots it does not stop at keyed nodes — nested
+// keys. Unlike collectSnapshots it does not stop at keyed nodes - nested
 // keys must also be unique because the Differ tracks by key name, not path.
 func validateKeys(n node.Node, seen map[string]bool) error {
 	if d, ok := n.(node.Dynamic); ok {

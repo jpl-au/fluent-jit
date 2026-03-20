@@ -86,14 +86,14 @@ Tracks keyed dynamic elements across renders and produces targeted patches for l
 ```go
 differ := jit.NewDiffer()
 
-// Initial render — stores snapshots of all keyed elements
+// Initial render - stores snapshots of all keyed elements
 html := differ.Render(tree)
 
-// After state change — returns only what changed
+// After state change - returns only what changed
 patches, change := differ.Diff(newTree)
 
 if change != nil {
-    // Structural change — keys were added, removed, or reordered.
+    // Structural change - keys were added, removed, or reordered.
     // change.String() describes what happened, e.g. "key 'sidebar' added"
     html = differ.Render(newTree)
 } else {
@@ -103,7 +103,7 @@ if change != nil {
 }
 ```
 
-Mark elements for tracking with `.Dynamic("key")`. The Differ only tracks **outermost** keyed elements — if a parent and child are both keyed, only the parent is tracked.
+Mark elements for tracking with `.Dynamic("key")`. The Differ only tracks **outermost** keyed elements - if a parent and child are both keyed, only the parent is tracked.
 
 ```go
 div.New(
@@ -137,7 +137,7 @@ if err := differ.Import(data); err != nil {
 differ.Clear()
 ```
 
-The encoding is opaque — callers must not interpret or manipulate the bytes. `Export` is non-destructive and does not clear the Differ's state.
+The encoding is opaque - callers must not interpret or manipulate the bytes. `Export` is non-destructive and does not clear the Differ's state.
 
 ## Configuration
 
@@ -201,7 +201,7 @@ Applications using Fluent JIT benefit from [Profile-Guided Optimization](https:/
    curl -o default.pgo http://localhost:8080/debug/pprof/profile?seconds=30
    ```
 2. Place `default.pgo` in your main package directory
-3. `go build` — PGO is applied automatically
+3. `go build` - PGO is applied automatically
 
 Allocations are unaffected; PGO improves speed only. Collect fresh profiles periodically as your application evolves.
 

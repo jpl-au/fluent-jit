@@ -12,7 +12,7 @@ import (
 )
 
 // TestDifferInitialRender verifies that the first Render call produces
-// the full HTML output — identical to calling Render on the root node
+// the full HTML output - identical to calling Render on the root node
 // directly. The diff engine should be invisible on the first render.
 func TestDifferInitialRender(t *testing.T) {
 	differ := NewDiffer()
@@ -49,7 +49,7 @@ func TestDifferRenderToWriter(t *testing.T) {
 
 // TestDifferNoPatchesWhenUnchanged verifies that Diff returns no patches
 // when the keyed elements produce identical output. This is the common case
-// for events that don't affect visible state — the diff engine should detect
+// for events that don't affect visible state - the diff engine should detect
 // that nothing changed and avoid sending unnecessary patches.
 func TestDifferNoPatchesWhenUnchanged(t *testing.T) {
 	differ := NewDiffer()
@@ -140,7 +140,7 @@ func TestDifferMultipleChanges(t *testing.T) {
 }
 
 // TestDifferPartialChange verifies that only changed elements produce
-// patches — unchanged elements are left alone. This is what makes the
+// patches - unchanged elements are left alone. This is what makes the
 // diff engine efficient: skip the 90% that didn't change.
 func TestDifferPartialChange(t *testing.T) {
 	differ := NewDiffer()
@@ -188,7 +188,7 @@ func TestDifferStructuralChangeKeyAdded(t *testing.T) {
 		t.Fatal("adding a new keyed element should trigger a structural change")
 	}
 	if patches != nil {
-		t.Error("structural change should return nil patches — the caller should use Render instead")
+		t.Error("structural change should return nil patches - the caller should use Render instead")
 	}
 	if len(change.Added) != 1 || change.Added[0] != "help" {
 		t.Errorf("should report 'help' as added, got Added=%v", change.Added)
@@ -309,7 +309,7 @@ func TestDifferStructuralChangeString(t *testing.T) {
 }
 
 // TestDifferDiffBeforeRender verifies that calling Diff before Render
-// returns nil patches and no structural change. This is a no-op — the
+// returns nil patches and no structural change. This is a no-op - the
 // differ has no baseline to compare against yet.
 func TestDifferDiffBeforeRender(t *testing.T) {
 	differ := NewDiffer()
@@ -334,7 +334,7 @@ func TestDifferUnkeyedDynamicNotTracked(t *testing.T) {
 
 	makeTree := func(value string) node.Node {
 		return div.New(
-			span.Text(value).Dynamic(), // no key — uses "_" sentinel
+			span.Text(value).Dynamic(), // no key - uses "_" sentinel
 		)
 	}
 
@@ -360,7 +360,7 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 	tree1 := div.New(span.Text("42").Dynamic("count"))
 	differ.Render(tree1)
 
-	// Structural change — new key added
+	// Structural change - new key added
 	tree2 := div.New(
 		span.Text("42").Dynamic("count"),
 		p.Text("Help").Dynamic("help"),
@@ -393,7 +393,7 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 
 // TestDifferValidateDuplicateKeys verifies that Validate catches duplicate
 // dynamic keys in a tree. Duplicate keys would cause the diff engine to
-// lose track of one element — only the last one visited would be stored.
+// lose track of one element - only the last one visited would be stored.
 func TestDifferValidateDuplicateKeys(t *testing.T) {
 	differ := NewDiffer()
 
@@ -404,7 +404,7 @@ func TestDifferValidateDuplicateKeys(t *testing.T) {
 
 	err := differ.Validate(tree)
 	if err == nil {
-		t.Fatal("duplicate keys should fail validation — the diff engine cannot track both elements")
+		t.Fatal("duplicate keys should fail validation - the diff engine cannot track both elements")
 	}
 	if !errors.Is(err, ErrDuplicateKey) {
 		t.Errorf("error should wrap ErrDuplicateKey for programmatic checking, got: %v", err)
@@ -440,7 +440,7 @@ func TestDifferValidateNoKeys(t *testing.T) {
 
 // TestDifferNoKeysNoPatchesNoStructuralChange verifies that a tree with
 // no keyed elements at all produces no patches and no structural change.
-// This is the degenerate case — the diff engine has nothing to track.
+// This is the degenerate case - the diff engine has nothing to track.
 func TestDifferNoKeysNoPatchesNoStructuralChange(t *testing.T) {
 	differ := NewDiffer()
 
@@ -501,7 +501,7 @@ func TestDifferWhenToggledDetectsStructuralChange(t *testing.T) {
 	_, change := differ.Diff(tree2)
 
 	if change == nil {
-		t.Fatal("toggling When from true to false should trigger a structural change — the 'help' key disappeared")
+		t.Fatal("toggling When from true to false should trigger a structural change - the 'help' key disappeared")
 	}
 	if len(change.Removed) != 1 || change.Removed[0] != "help" {
 		t.Errorf("should report 'help' as removed, got Removed=%v", change.Removed)
@@ -529,7 +529,7 @@ func TestDifferConditionBothBranches(t *testing.T) {
 	_, change := differ.Diff(tree2)
 
 	if change == nil {
-		t.Fatal("switching condition branches should trigger a structural change — different keys are active")
+		t.Fatal("switching condition branches should trigger a structural change - different keys are active")
 	}
 }
 
@@ -713,7 +713,7 @@ func TestClearThenRender(t *testing.T) {
 }
 
 // TestExportDoesNotClearState verifies that Export is non-destructive.
-// The differ should still function normally after Export — Diff should
+// The differ should still function normally after Export - Diff should
 // continue to work against the same baseline.
 func TestExportDoesNotClearState(t *testing.T) {
 	d := NewDiffer()
@@ -724,7 +724,7 @@ func TestExportDoesNotClearState(t *testing.T) {
 
 	_ = d.Export()
 
-	// Differ should still work — Export didn't destroy anything.
+	// Differ should still work - Export didn't destroy anything.
 	changed := div.New(span.Text("world").Dynamic("msg"))
 	patches, change := d.Diff(changed)
 	if change != nil {
@@ -748,7 +748,7 @@ func TestImportStructuralChange(t *testing.T) {
 		t.Fatalf("Import failed: %v", err)
 	}
 
-	// Different key set — should be a structural change.
+	// Different key set - should be a structural change.
 	different := div.New(span.Text("hello").Dynamic("other"))
 	_, change := d2.Diff(different)
 	if change == nil {

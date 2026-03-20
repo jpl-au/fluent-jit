@@ -11,7 +11,7 @@ import (
 
 // TestFlattenerStaticContent verifies the happy path: a fully static tree
 // is rendered once and cached as a byte slice. The flattener is the most
-// aggressive optimisation — it eliminates all per-render work by pre-computing
+// aggressive optimisation - it eliminates all per-render work by pre-computing
 // the entire output. This only works for trees with no dynamic content.
 func TestFlattenerStaticContent(t *testing.T) {
 	n := div.New(span.Static("hello"))
@@ -33,12 +33,12 @@ func TestFlattenerStaticContent(t *testing.T) {
 // the global Flatten function (which silently falls back), NewFlattener returns
 // ErrDynamicContent so callers can make an informed decision about alternatives.
 func TestFlattenerRejectsDynamicContent(t *testing.T) {
-	// span.Text is dynamic — its content changes between renders.
+	// span.Text is dynamic - its content changes between renders.
 	n := div.New(span.Text("hello"))
 
 	_, err := NewFlattener(n)
 	if err == nil {
-		t.Fatal("flattener should reject dynamic content — caching it would freeze changing values")
+		t.Fatal("flattener should reject dynamic content - caching it would freeze changing values")
 	}
 	if err != ErrDynamicContent {
 		t.Errorf("error should be ErrDynamicContent (so callers can check it), got %v", err)
@@ -48,7 +48,7 @@ func TestFlattenerRejectsDynamicContent(t *testing.T) {
 // TestFlattenerRejectsFuncComponent verifies that function components are
 // correctly identified as dynamic. Even though a Func might return static
 // content, the function itself must be called each render to capture any
-// closure state changes — so the flattener cannot safely cache it.
+// closure state changes - so the flattener cannot safely cache it.
 func TestFlattenerRejectsFuncComponent(t *testing.T) {
 	n := div.New(node.Func(func() node.Node { return span.Static("hello") }))
 
@@ -74,7 +74,7 @@ func TestFlattenerRenderToWriter(t *testing.T) {
 	result := f.Render(&buf)
 
 	if result != nil {
-		t.Error("Render should return nil when writing to a writer — returning bytes would mean double allocation")
+		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
 	}
 
 	expected := "<div>hello</div>"
