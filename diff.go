@@ -136,8 +136,8 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 		return nil, nil
 	}
 
-	current := make(map[string]*bytes.Buffer)
-	var currentOrder []string
+	current := make(map[string]*bytes.Buffer, len(d.snapshots))
+	currentOrder := make([]string, 0, len(d.order))
 	collectSnapshots(root, current, &currentOrder)
 
 	// Structural change - keys were added, removed, or reordered.
@@ -149,19 +149,27 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 		return nil, describeChange(d.order, currentOrder)
 	}
 
-	// Compare each keyed element's rendered output in tree-walk order.
+	// Compare each keyed element's rendered output and build patches.
+	// Unchanged keys reuse the previous buffer (returned to pool
+	// immediately) to avoid keeping two copies of identical content.
 	var patches []Patch
 	for _, key := range currentOrder {
 		cur := current[key]
 		prev := d.snapshots[key]
-		if !bytes.Equal(cur.Bytes(), prev.Bytes()) {
+		if bytes.Equal(cur.Bytes(), prev.Bytes()) {
+			// Unchanged - return the fresh buffer to the pool and
+			// keep the existing snapshot in place.
+			fluent.PutBuffer(cur)
+			current[key] = prev
+		} else {
 			patches = append(patches, Patch{Key: key, HTML: cur.Bytes()})
+			// Return the old buffer since it's being replaced.
+			fluent.PutBuffer(prev)
 		}
 	}
 
-	// Return old buffers to the pool and store the new ones.
-	d.returnBuffers()
 	d.snapshots = current
+	d.order = currentOrder
 
 	return patches, nil
 }
