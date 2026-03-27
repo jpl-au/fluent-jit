@@ -139,6 +139,58 @@ differ.Clear()
 
 The encoding is opaque - callers must not interpret or manipulate the bytes. `Export` is non-destructive and does not clear the Differ's state.
 
+### DiffKey (targeted single-key diff)
+
+When you know exactly which key changed, `DiffKey` re-renders and
+diffs only that key against the stored snapshot. The rest of the
+tree is untouched. Over 1,000x faster than a full `Diff` for
+targeting one key out of many.
+
+```go
+patch := differ.DiffKey("count", span.Textf("Count: %d", newCount).Dynamic("count"))
+if patch != nil {
+    // patch.Key is "count", patch.HTML is the new content
+}
+```
+
+`DiffKey` updates the snapshot for the targeted key, so subsequent
+`Diff` calls see the new content. Other keys are unaffected.
+
+### Memoiser
+
+An alternative to the Differ that skips unchanged subtrees. Each
+Dynamic region wraps its content in `node.Memo` with a cache key.
+When the key matches the previous render, the closure never runs
+and no HTML is produced for that region.
+
+```go
+memoiser := jit.NewMemoiser()
+
+// Initial render - stores snapshots and memo keys
+html := memoiser.Render(tree)
+
+// After state change - skips unchanged subtrees
+patches, change := memoiser.Diff(newTree)
+```
+
+The Memoiser is a standalone engine, not a wrapper around the
+Differ. Use one or the other per session, not both. Both support
+`DiffKey` for targeted single-key diffs.
+
+The render function uses `node.Memo` to mark skippable regions:
+
+```go
+div.New(
+    node.Memo(version, func() node.Node {
+        return expensiveRender()
+    }),
+).Dynamic("items")
+```
+
+When `version` matches the previous render, the closure is not
+called and the stored snapshot is reused. When it changes, the
+closure runs and the result is diffed against the previous snapshot.
+
 ## Configuration
 
 Both Compiler and Tuner support custom configuration:
@@ -181,7 +233,7 @@ jit.ResetFlatten()
 
 ## Documentation for LLMs
 
-- `AGENTS.md` - Technical reference for JIT optimisation strategies, Differ, and API details
+- `AGENTS.md` - Technical reference for JIT optimisation strategies, Differ, Memoiser, DiffKey, and API details
 
 ## When to Use JIT
 

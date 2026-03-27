@@ -221,9 +221,11 @@ func memoKeyToString(v any) string {
 }
 
 // DiffKey re-renders a single Dynamic key against the stored snapshot
-// and returns a patch if the content changed. Does not check memo
-// keys - the developer is explicitly targeting this key. The snapshot
-// is updated so subsequent Diff calls see the new content.
+// and returns a patch if the content changed. Use this for targeted
+// updates where the caller knows exactly which key changed. Does not
+// check memo keys because the developer is explicitly targeting this
+// key. The snapshot is updated so subsequent Diff calls see the new
+// content.
 func (m *Memoiser) DiffKey(key string, subtree node.Node) *Patch {
 	m.mu.Lock()
 	defer m.mu.Unlock()
