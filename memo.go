@@ -220,6 +220,34 @@ func memoKeyToString(v any) string {
 	}
 }
 
+// DiffKey re-renders a single Dynamic key against the stored snapshot
+// and returns a patch if the content changed. Does not check memo
+// keys - the developer is explicitly targeting this key. The snapshot
+// is updated so subsequent Diff calls see the new content.
+func (m *Memoiser) DiffKey(key string, subtree node.Node) *Patch {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	prev := m.snapshots[key]
+
+	buf := fluent.NewBuffer(SnapshotHint)
+	subtree.RenderBuilder(buf)
+
+	if prev != nil && bytes.Equal(buf.Bytes(), prev.Bytes()) {
+		fluent.PutBuffer(buf)
+		return nil
+	}
+
+	patch := &Patch{Key: key, HTML: buf.Bytes()}
+
+	if prev != nil {
+		fluent.PutBuffer(prev)
+	}
+	m.snapshots[key] = buf
+
+	return patch
+}
+
 // returnBuffers returns all stored snapshot buffers to the pool.
 func (m *Memoiser) returnBuffers() {
 	for _, buf := range m.snapshots {

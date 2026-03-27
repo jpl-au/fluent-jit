@@ -213,6 +213,38 @@ func (d *Differ) Validate(root node.Node) error {
 	return validateKeys(root, seen)
 }
 
+// DiffKey re-renders a single Dynamic key against the stored snapshot
+// and returns a patch if the content changed. The snapshot for the key
+// is updated so subsequent Diff calls see the new content. Other keys
+// are not touched.
+//
+// Returns nil if the key has no stored snapshot or the content is
+// unchanged. The subtree parameter is the rendered output for the key,
+// not the full tree.
+func (d *Differ) DiffKey(key string, subtree node.Node) *Patch {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	prev := d.snapshots[key]
+
+	buf := fluent.NewBuffer(SnapshotHint)
+	subtree.RenderBuilder(buf)
+
+	if prev != nil && bytes.Equal(buf.Bytes(), prev.Bytes()) {
+		fluent.PutBuffer(buf)
+		return nil
+	}
+
+	patch := &Patch{Key: key, HTML: buf.Bytes()}
+
+	if prev != nil {
+		fluent.PutBuffer(prev)
+	}
+	d.snapshots[key] = buf
+
+	return patch
+}
+
 // returnBuffers returns all stored snapshot buffers to the pool.
 // Caller must hold d.mu.
 func (d *Differ) returnBuffers() {

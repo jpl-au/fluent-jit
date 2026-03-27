@@ -17,9 +17,16 @@
 //  4. Differ: Tracks keyed dynamic elements across renders and produces
 //     targeted patches for live updates. This is the diff engine behind
 //     Tether's reactive UI, but can be used standalone. Mark elements
-//     with .Dynamic("key") to enable tracking. Snapshot data can be
-//     serialised via [Differ.Export] and restored with [Differ.Import]
-//     for external storage of disconnected session data.
+//     with .Dynamic("key") to enable tracking. [Differ.DiffKey] allows
+//     re-rendering a single key without walking the full tree. Snapshot
+//     data can be serialised via [Differ.Export] and restored with
+//     [Differ.Import] for external storage of disconnected session data.
+//
+//  5. Memoiser: An alternative to [Differ] that skips unchanged subtrees
+//     when the render function uses [node.Memo] nodes. Each Dynamic region
+//     carries a cache key; matching keys skip the closure entirely. Use
+//     [NewMemoiser] to create a standalone instance. Like [Differ], it
+//     supports [Memoiser.DiffKey] for targeted single-key diffs.
 //
 // The package provides two APIs:
 //   - Instance API: Create specific instances ([NewCompiler], [NewTuner],
