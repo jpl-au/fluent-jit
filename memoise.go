@@ -14,39 +14,44 @@ import (
 )
 
 // Memoiser provides an alternative to [Differ] for render trees that
-// use [node.Memo] nodes. It is a standalone concern - use either the
+// use [node.Memoise] nodes. It is a standalone concern - use either the
 // Differ or the Memoiser, not both on the same session.
 //
 // When the developer opts into memoisation, every Dynamic region in
-// the render tree should contain a [node.Memo] child with a cache
-// key. On each Diff call, the Memoiser compares memo keys with the
+// the render tree should contain a [node.Memoise] child with a cache
+// key. On each Diff call, the Memoiser compares memoisation keys with the
 // previous render. Matching keys skip the subtree entirely - the
 // closure never runs and no HTML is rendered. Mismatched keys call
 // the closure and render the result into a snapshot for comparison.
 //
 // The Memoiser does not fall back to content-based diffing for
-// non-memo Dynamic nodes. If a Dynamic node has no memo child, it
+// non-memoised Dynamic nodes. If a Dynamic node has no memoised child, it
 // is always re-rendered (treated as a miss). This keeps the
 // implementation simple and fast - there is no tree walking via
 // Nodes() that would materialise closures.
 type Memoiser struct {
-	mu        sync.Mutex
-	snapshots map[string]*bytes.Buffer
-	memoKeys  map[string]string // Dynamic key -> stringified memo key
-	order     []string
-	seeded    bool
+	mu          sync.Mutex
+	snapshots   map[string]*bytes.Buffer
+	memoiseKeys map[string]string // Dynamic key -> stringified memoisation key
+	order       []string
+	seeded      bool
+
+	// lastHits and lastMisses track memoisation cache performance from the
+	// most recent Diff call. Read them via Stats() after Diff returns.
+	lastHits   int
+	lastMisses int
 }
 
 // NewMemoiser creates an empty Memoiser ready for use.
 func NewMemoiser() *Memoiser {
 	return &Memoiser{
-		snapshots: make(map[string]*bytes.Buffer),
-		memoKeys:  make(map[string]string),
+		snapshots:   make(map[string]*bytes.Buffer),
+		memoiseKeys: make(map[string]string),
 	}
 }
 
 // Render produces the full HTML for the tree and stores snapshots
-// and memo keys for all Dynamic regions. Use this for the initial
+// and memoisation keys for all Dynamic regions. Use this for the initial
 // page load and after structural changes detected by Diff.
 func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.mu.Lock()
@@ -54,7 +59,7 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 
 	m.returnBuffers()
 	m.snapshots = make(map[string]*bytes.Buffer)
-	m.memoKeys = make(map[string]string)
+	m.memoiseKeys = make(map[string]string)
 	m.order = nil
 	m.collectAll(root)
 	m.seeded = true
@@ -62,13 +67,13 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	return root.Render(w...)
 }
 
-// Diff compares the new tree against stored snapshots using memo
+// Diff compares the new tree against stored snapshots using memoisation
 // keys. For each Dynamic node:
 //
 //   - If its child satisfies [node.Memoiser] and the key matches the
 //     previous render, the subtree is skipped. No closure is called,
 //     no HTML is rendered. The previous snapshot is reused.
-//   - If the key differs (or there is no memo child), [node.Memoiser].MemoRender
+//   - If the key differs (or there is no memoised child), [node.Memoiser].MemoiseRender
 //     is called (or the node is rendered directly) and the result is
 //     compared against the stored snapshot.
 //
@@ -83,11 +88,14 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 		return nil, nil
 	}
 
+	m.lastHits = 0
+	m.lastMisses = 0
+
 	// Collect the current order and identify misses. Hits skip
 	// entirely - no buffer allocated, no render, no comparison.
 	// Only misses produce fresh buffers for comparison.
 	misses := make(map[string]*bytes.Buffer)
-	newKeys := make(map[string]string, len(m.memoKeys))
+	newKeys := make(map[string]string, len(m.memoiseKeys))
 	currentOrder := make([]string, 0, len(m.order))
 	m.collectDiff(root, misses, newKeys, &currentOrder)
 
@@ -96,7 +104,7 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 			fluent.PutBuffer(buf)
 		}
 		change := describeChange(m.order, currentOrder)
-		m.memoKeys = newKeys
+		m.memoiseKeys = newKeys
 		m.order = currentOrder
 		return nil, change
 	}
@@ -114,14 +122,14 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 		}
 		m.snapshots[key] = cur
 	}
-	m.memoKeys = newKeys
+	m.memoiseKeys = newKeys
 	m.order = currentOrder
 
 	return patches, nil
 }
 
 // collectAll walks the tree for the initial Render. Every Dynamic
-// node is rendered and its memo key (if any) is recorded. This
+// node is rendered and its memoisation key (if any) is recorded. This
 // establishes the baseline for subsequent Diff calls.
 func (m *Memoiser) collectAll(n node.Node) {
 	if d, ok := n.(node.Dynamic); ok {
@@ -132,8 +140,11 @@ func (m *Memoiser) collectAll(n node.Node) {
 			m.snapshots[key] = buf
 			m.order = append(m.order, key)
 
-			if mk := findMemoKeyStr(n); mk != "" {
-				m.memoKeys[key] = mk
+			if mk := findMemoiseKeyStr(n); mk != "" {
+				m.memoiseKeys[key] = mk
+				if el, ok := n.(node.Element); ok {
+					el.SetAttribute("data-tether-memoise", mk)
+				}
 			}
 			return
 		}
@@ -146,7 +157,7 @@ func (m *Memoiser) collectAll(n node.Node) {
 }
 
 // collectDiff walks the tree for a Diff call. For each Dynamic node,
-// it checks whether the memo key matches the previous render. Hits
+// it checks whether the memoisation key matches the previous render. Hits
 // are skipped entirely - no buffer allocated, no render. Misses are
 // rendered into fresh buffers in the misses map.
 func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string) {
@@ -155,16 +166,23 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 		if key != "" && key != "_" {
 			*order = append(*order, key)
 
-			mk := findMemoKeyStr(n)
+			mk := findMemoiseKeyStr(n)
 			if mk != "" {
 				keys[key] = mk
 				// Hit: same key as previous render. Skip entirely.
-				if prev, exists := m.memoKeys[key]; exists && prev == mk {
+				if prev, exists := m.memoiseKeys[key]; exists && prev == mk {
+					m.lastHits++
 					return
 				}
 			}
 
-			// Miss: render the node.
+			// Miss: inject the memoisation key and render the node.
+			m.lastMisses++
+			if mk != "" {
+				if el, ok := n.(node.Element); ok {
+					el.SetAttribute("data-tether-memoise", mk)
+				}
+			}
 			buf := fluent.NewBuffer(SnapshotHint)
 			n.RenderBuilder(buf)
 			misses[key] = buf
@@ -178,24 +196,24 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 	}
 }
 
-// findMemoKeyStr checks the immediate children of a node for a
+// findMemoiseKeyStr checks the immediate children of a node for a
 // [node.Memoiser] and returns the key as a string. The conversion
 // uses type-switched strconv for common types (zero reflection,
-// zero allocation for string keys). Returns "" if no memo child
+// zero allocation for string keys). Returns "" if no memoised child
 // is found.
-func findMemoKeyStr(n node.Node) string {
+func findMemoiseKeyStr(n node.Node) string {
 	for _, child := range n.Nodes() {
 		if memo, ok := child.(node.Memoiser); ok {
-			return memoKeyToString(memo.MemoKey())
+			return memoiseKeyToString(memo.MemoiseKey())
 		}
 	}
 	return ""
 }
 
-// memoKeyToString converts a memo key to a string using fast paths
+// memoiseKeyToString converts a memoisation key to a string using fast paths
 // for common types. Only the fallback uses fmt.Sprint; the common
 // cases (string, int, bool) use strconv with no reflection.
-func memoKeyToString(v any) string {
+func memoiseKeyToString(v any) string {
 	switch k := v.(type) {
 	case string:
 		return k
@@ -223,7 +241,7 @@ func memoKeyToString(v any) string {
 // DiffKey re-renders a single Dynamic key against the stored snapshot
 // and returns a patch if the content changed. Use this for targeted
 // updates where the caller knows exactly which key changed. Does not
-// check memo keys because the developer is explicitly targeting this
+// check memoisation keys because the developer is explicitly targeting this
 // key. The snapshot is updated so subsequent Diff calls see the new
 // content.
 func (m *Memoiser) DiffKey(key string, subtree node.Node) *Patch {
@@ -250,6 +268,17 @@ func (m *Memoiser) DiffKey(key string, subtree node.Node) *Patch {
 	return patch
 }
 
+// Stats returns the hit and miss counts from the most recent Diff
+// call. A hit means the memoisation key matched and the subtree was skipped.
+// A miss means the key differed (or was absent) and the subtree was
+// re-rendered. Call this immediately after Diff to inspect cache
+// performance.
+func (m *Memoiser) Stats() (hits, misses int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastHits, m.lastMisses
+}
+
 // returnBuffers returns all stored snapshot buffers to the pool.
 func (m *Memoiser) returnBuffers() {
 	for _, buf := range m.snapshots {
@@ -257,7 +286,7 @@ func (m *Memoiser) returnBuffers() {
 	}
 }
 
-// Export returns the Memoiser's snapshot and memo key data as raw
+// Export returns the Memoiser's snapshot and memoisation key data as raw
 // bytes suitable for external storage. Returns nil if unseeded.
 func (m *Memoiser) Export() []byte {
 	m.mu.Lock()
@@ -279,11 +308,11 @@ func (m *Memoiser) Export() []byte {
 		buf.Write(snap.Bytes())
 	}
 
-	// Memo keys: count, then (keyLen, key, valLen, val) pairs.
+	// Memoisation keys: count, then (keyLen, key, valLen, val) pairs.
 	// Values are already strings (converted once on entry via
-	// memoKeyToString).
-	binary.Write(&buf, binary.LittleEndian, uint32(len(m.memoKeys)))
-	for k, v := range m.memoKeys {
+	// memoiseKeyToString).
+	binary.Write(&buf, binary.LittleEndian, uint32(len(m.memoiseKeys)))
+	for k, v := range m.memoiseKeys {
 		binary.Write(&buf, binary.LittleEndian, uint32(len(k)))
 		buf.WriteString(k)
 		binary.Write(&buf, binary.LittleEndian, uint32(len(v)))
@@ -293,7 +322,7 @@ func (m *Memoiser) Export() []byte {
 	return buf.Bytes()
 }
 
-// Import restores snapshot and memo key data from a prior Export.
+// Import restores snapshot and memoisation key data from a prior Export.
 func (m *Memoiser) Import(data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -303,7 +332,7 @@ func (m *Memoiser) Import(data []byte) error {
 	// Read snapshots.
 	var count uint32
 	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
-		return fmt.Errorf("jit: memo import: reading snapshot count: %w", err)
+		return fmt.Errorf("jit: memoiser import: reading snapshot count: %w", err)
 	}
 
 	snapshots := make(map[string]*bytes.Buffer, count)
@@ -319,37 +348,37 @@ func (m *Memoiser) Import(data []byte) error {
 		var keyLen uint32
 		if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
 			returnParsed()
-			return fmt.Errorf("jit: memo import: reading key length: %w", err)
+			return fmt.Errorf("jit: memoiser import: reading key length: %w", err)
 		}
 		keyBytes := make([]byte, keyLen)
 		if _, err := io.ReadFull(r, keyBytes); err != nil {
 			returnParsed()
-			return fmt.Errorf("jit: memo import: reading key: %w", err)
+			return fmt.Errorf("jit: memoiser import: reading key: %w", err)
 		}
 		key := string(keyBytes)
 
 		var valLen uint32
 		if err := binary.Read(r, binary.LittleEndian, &valLen); err != nil {
 			returnParsed()
-			return fmt.Errorf("jit: memo import: reading value length: %w", err)
+			return fmt.Errorf("jit: memoiser import: reading value length: %w", err)
 		}
 
 		buf := fluent.NewBuffer(int(valLen))
 		if _, err := io.CopyN(buf, r, int64(valLen)); err != nil {
 			fluent.PutBuffer(buf)
 			returnParsed()
-			return fmt.Errorf("jit: memo import: reading value: %w", err)
+			return fmt.Errorf("jit: memoiser import: reading value: %w", err)
 		}
 
 		snapshots[key] = buf
 		order = append(order, key)
 	}
 
-	// Read memo keys if present.
-	memoKeys := make(map[string]string)
-	var memoCount uint32
-	if err := binary.Read(r, binary.LittleEndian, &memoCount); err == nil {
-		for range memoCount {
+	// Read memoisation keys if present.
+	memoiseKeys := make(map[string]string)
+	var memoiseCount uint32
+	if err := binary.Read(r, binary.LittleEndian, &memoiseCount); err == nil {
+		for range memoiseCount {
 			var kLen uint32
 			if err := binary.Read(r, binary.LittleEndian, &kLen); err != nil {
 				break
@@ -366,14 +395,14 @@ func (m *Memoiser) Import(data []byte) error {
 			if _, err := io.ReadFull(r, vBytes); err != nil {
 				break
 			}
-			memoKeys[string(kBytes)] = string(vBytes)
+			memoiseKeys[string(kBytes)] = string(vBytes)
 		}
 	}
 
 	m.returnBuffers()
 	m.snapshots = snapshots
 	m.order = order
-	m.memoKeys = memoKeys
+	m.memoiseKeys = memoiseKeys
 	m.seeded = true
 	return nil
 }
@@ -385,7 +414,7 @@ func (m *Memoiser) Clear() {
 
 	m.returnBuffers()
 	m.snapshots = make(map[string]*bytes.Buffer)
-	m.memoKeys = make(map[string]string)
+	m.memoiseKeys = make(map[string]string)
 	m.order = nil
 	m.seeded = false
 }

@@ -65,13 +65,13 @@ func benchMemoTree(n int) func(int, int) node.Node {
 		for i := range n {
 			v := version
 			children[i] = div.New(
-				node.Memo(v, func() node.Node {
+				node.Memoise(v, func() node.Node {
 					return span.Text("item")
 				}),
 			).Dynamic("k" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
 		}
 		children[0] = div.New(
-			node.Memo(count, func() node.Node {
+			node.Memoise(count, func() node.Node {
 				return span.Text(string(rune('0' + count%10)))
 			}),
 		).Dynamic("counter")
@@ -92,7 +92,7 @@ func BenchmarkMemoiserDiff50_WithMemo_AllHit(b *testing.B) {
 
 // benchExpensiveTree simulates a realistic tree where each Dynamic
 // region contains a non-trivial subtree (20 child elements). This is
-// where memo should show real savings - skipping the render of large
+// where the memoiser should show real savings - skipping the render of large
 // subtrees.
 func benchExpensiveMemoTree(n int) func(int, int) node.Node {
 	return func(count int, version int) node.Node {
@@ -100,7 +100,7 @@ func benchExpensiveMemoTree(n int) func(int, int) node.Node {
 		for i := range n {
 			v := version
 			children[i] = div.New(
-				node.Memo(v, func() node.Node {
+				node.Memoise(v, func() node.Node {
 					rows := make([]node.Node, 20)
 					for j := range 20 {
 						rows[j] = div.New(span.Text("cell"), span.Text("data")).Class("row")
@@ -110,7 +110,7 @@ func benchExpensiveMemoTree(n int) func(int, int) node.Node {
 			).Dynamic("k" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
 		}
 		children[0] = div.New(
-			node.Memo(count, func() node.Node {
+			node.Memoise(count, func() node.Node {
 				return span.Text(string(rune('0' + count%10)))
 			}),
 		).Dynamic("counter")

@@ -8,7 +8,7 @@ import (
 	"github.com/jpl-au/fluent/node"
 )
 
-// TestMemoiserSkipsUnchangedSubtree verifies that when a memo key
+// TestMemoiserSkipsUnchangedSubtree verifies that when a memoisation key
 // matches the previous render, the closure is not called and no
 // patch is emitted for that Dynamic region.
 func TestMemoiserSkipsUnchangedSubtree(t *testing.T) {
@@ -18,7 +18,7 @@ func TestMemoiserSkipsUnchangedSubtree(t *testing.T) {
 	tree := func(version int) node.Node {
 		return div.New(
 			div.New(
-				node.Memo(version, func() node.Node {
+				node.Memoise(version, func() node.Node {
 					calls++
 					return span.Text("expensive")
 				}),
@@ -41,7 +41,7 @@ func TestMemoiserSkipsUnchangedSubtree(t *testing.T) {
 	}
 }
 
-// TestMemoiserRendersOnKeyChange verifies that when the memo key
+// TestMemoiserRendersOnKeyChange verifies that when the memoisation key
 // changes, the closure is called and a patch is emitted.
 func TestMemoiserRendersOnKeyChange(t *testing.T) {
 	m := NewMemoiser()
@@ -49,7 +49,7 @@ func TestMemoiserRendersOnKeyChange(t *testing.T) {
 	tree := func(version int, text string) node.Node {
 		return div.New(
 			div.New(
-				node.Memo(version, func() node.Node {
+				node.Memoise(version, func() node.Node {
 					return span.Text(text)
 				}),
 			).Dynamic("items"),
@@ -71,7 +71,7 @@ func TestMemoiserRendersOnKeyChange(t *testing.T) {
 }
 
 // TestMemoiserNonMemoAlwaysRenders verifies that Dynamic nodes
-// without a memo child are always re-rendered (treated as a miss).
+// without a memoised child are always re-rendered (treated as a miss).
 func TestMemoiserNonMemoAlwaysRenders(t *testing.T) {
 	m := NewMemoiser()
 
@@ -95,8 +95,8 @@ func TestMemoiserNonMemoAlwaysRenders(t *testing.T) {
 	}
 }
 
-// TestMemoiserMixedRegions verifies that a tree with both memo and
-// non-memo Dynamic regions works correctly.
+// TestMemoiserMixedRegions verifies that a tree with both memoised and
+// non-memoised Dynamic regions works correctly.
 func TestMemoiserMixedRegions(t *testing.T) {
 	m := NewMemoiser()
 
@@ -104,7 +104,7 @@ func TestMemoiserMixedRegions(t *testing.T) {
 	tree := func(version int, count string) node.Node {
 		return div.New(
 			div.New(
-				node.Memo(version, func() node.Node {
+				node.Memoise(version, func() node.Node {
 					calls++
 					return span.Text("static content")
 				}),
@@ -121,7 +121,7 @@ func TestMemoiserMixedRegions(t *testing.T) {
 		t.Fatal("expected no structural change")
 	}
 	if calls != 0 {
-		t.Errorf("memo closure should not be called, was called %d times", calls)
+		t.Errorf("memoised closure should not be called, was called %d times", calls)
 	}
 	if len(patches) != 1 {
 		t.Fatalf("expected 1 patch (count only), got %d", len(patches))
@@ -131,7 +131,7 @@ func TestMemoiserMixedRegions(t *testing.T) {
 	}
 }
 
-// TestMemoiserExportImportPreservesKeys verifies that memo keys
+// TestMemoiserExportImportPreservesKeys verifies that memoisation keys
 // survive Export/Import.
 func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 	m1 := NewMemoiser()
@@ -140,7 +140,7 @@ func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 	tree := func(version int) node.Node {
 		return div.New(
 			div.New(
-				node.Memo(version, func() node.Node {
+				node.Memoise(version, func() node.Node {
 					calls++
 					return span.Text("expensive")
 				}),
@@ -172,7 +172,7 @@ func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 	}
 }
 
-// TestMemoiserClear resets snapshots and memo keys.
+// TestMemoiserClear resets snapshots and memoisation keys.
 func TestMemoiserClear(t *testing.T) {
 	m := NewMemoiser()
 	tree := div.New(span.Text("hello").Dynamic("msg"))

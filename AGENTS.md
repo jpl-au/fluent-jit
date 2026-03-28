@@ -307,6 +307,8 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 | Flatten | Fully static | Headers, footers, navigation, boilerplate |
 | Tune | Any | Content with variable sizes, want buffer optimisation only |
 | Compile | Mixed static/dynamic | Templates rendered many times with different data |
+| Differ | Dynamic (keyed) | Live updates via Tether - tracks keyed elements, produces patches |
+| Memoiser | Dynamic (keyed + memoised) | Like Differ but skips unchanged subtrees via `node.Memoise` keys |
 
 ## Common Pitfalls
 
@@ -412,6 +414,25 @@ Tether uses this to log actionable diagnostics so developers know when and why a
 - `Import([]byte) error` - restores snapshots from bytes previously returned by `Export`. The internal encoding is a binary format using length-prefixed keys and values. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
 - `Clear()` - releases all snapshot buffers back to `fluent.PutBuffer` and resets the Differ to its zero state. Useful after exporting when the Differ is no longer needed.
 
+### DiffKey (targeted single-key diffs)
+
+Re-render and diff a single Dynamic key without walking the full
+tree. Returns a `*Patch` if the content changed, nil if unchanged.
+Works on both Differ and Memoiser.
+
+```go
+// Re-render just the "row-47" key
+patch := differ.DiffKey("row-47", renderRow(items[47]))
+if patch != nil {
+    // send patch to client
+}
+```
+
+DiffKey updates the stored snapshot for the targeted key so
+subsequent full Diff calls see the new content. It does not check
+memoisation keys (on the Memoiser) because the developer is explicitly
+targeting this key.
+
 ### Dynamic keys
 
 Elements are marked dynamic with `.Dynamic("key")`:
@@ -421,6 +442,72 @@ span.Text(count).Dynamic("count")  // Tracked by the Differ
 span.Text(value).Dynamic()          // "_" sentinel - JIT-dynamic but not diff-tracked
 span.Static("hello")                // Static - invisible to the Differ
 ```
+
+## Memoiser
+
+An alternative to the Differ that skips unchanged subtrees. Each
+Dynamic region wraps its content in `node.Memoise` with a cache key.
+When the key matches the previous render, the closure never runs and
+no HTML is produced for that region.
+
+```go
+memoiser := jit.NewMemoiser()
+
+// Initial render - stores snapshots and memoisation keys
+html := memoiser.Render(tree)
+
+// After state change - skips unchanged subtrees
+patches, change := memoiser.Diff(newTree)
+```
+
+The Memoiser is a standalone engine, not a wrapper around the
+Differ. Use one or the other per session, not both. Both support
+DiffKey for targeted single-key diffs.
+
+### Render function pattern
+
+```go
+func render(s State) node.Node {
+    return div.New(
+        div.New(
+            node.Memoise(s.Items.Version(), func() node.Node {
+                return renderTable(s.Items.Val)
+            }),
+        ).Dynamic("items"),
+        div.New(
+            span.Text(strconv.Itoa(s.Count)),
+        ).Dynamic("counter"),
+    )
+}
+```
+
+Dynamic regions without a `node.Memoise` child are always
+re-rendered (treated as a miss). The Memoiser does not fall back to
+content-based diffing for non-memoised nodes.
+
+### Stats
+
+After each Diff call, `Stats()` returns the hit and miss counts:
+
+```go
+patches, change := memoiser.Diff(tree)
+hits, misses := memoiser.Stats()
+```
+
+A hit means the memoisation key matched and the subtree was skipped. A miss
+means the key differed (or was absent) and the subtree was
+re-rendered. Zero overhead - just two integer increments per memoised
+node during the existing tree walk.
+
+### Key differences from Differ
+
+| | Differ | Memoiser |
+|---|---|---|
+| Skips unchanged subtrees | No - always re-renders and compares HTML | Yes - matching memoisation keys skip entirely |
+| Requires `node.Memoise` | No | Yes, for each Dynamic region |
+| Content-based diffing | Yes - compares rendered HTML | Only for misses |
+| DiffKey | Yes | Yes |
+| Export/Import | Yes | Yes (includes memoisation keys) |
 
 ## Package Structure
 
@@ -432,6 +519,7 @@ fluent-jit/
 ├── adaptive.go  # AdaptiveSizer: two-phase buffer sizing logic
 ├── flatten.go   # Flattener: static content pre-rendering
 ├── diff.go      # Differ: keyed element tracking and targeted patches
+├── memoise.go   # Memoiser: memoisation-key-aware subtree skipping, Stats, DiffKey
 ├── global.go    # Global API: sync.Map registries and helpers
 └── go.mod       # Module definition
 ```

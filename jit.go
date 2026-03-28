@@ -23,7 +23,7 @@
 //     [Differ.Import] for external storage of disconnected session data.
 //
 //  5. Memoiser: An alternative to [Differ] that skips unchanged subtrees
-//     when the render function uses [node.Memo] nodes. Each Dynamic region
+//     when the render function uses [node.Memoise] nodes. Each Dynamic region
 //     carries a cache key; matching keys skip the closure entirely. Use
 //     [NewMemoiser] to create a standalone instance. Like [Differ], it
 //     supports [Memoiser.DiffKey] for targeted single-key diffs.

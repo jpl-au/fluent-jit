@@ -159,14 +159,14 @@ if patch != nil {
 ### Memoiser
 
 An alternative to the Differ that skips unchanged subtrees. Each
-Dynamic region wraps its content in `node.Memo` with a cache key.
+Dynamic region wraps its content in `node.Memoise` with a cache key.
 When the key matches the previous render, the closure never runs
 and no HTML is produced for that region.
 
 ```go
 memoiser := jit.NewMemoiser()
 
-// Initial render - stores snapshots and memo keys
+// Initial render - stores snapshots and memoisation keys
 html := memoiser.Render(tree)
 
 // After state change - skips unchanged subtrees
@@ -177,11 +177,11 @@ The Memoiser is a standalone engine, not a wrapper around the
 Differ. Use one or the other per session, not both. Both support
 `DiffKey` for targeted single-key diffs.
 
-The render function uses `node.Memo` to mark skippable regions:
+The render function uses `node.Memoise` to mark skippable regions:
 
 ```go
 div.New(
-    node.Memo(version, func() node.Node {
+    node.Memoise(version, func() node.Node {
         return expensiveRender()
     }),
 ).Dynamic("items")

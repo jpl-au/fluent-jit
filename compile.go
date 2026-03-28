@@ -266,7 +266,7 @@ func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 // - On render, the path is traversed on the NEW tree to get fresh values.
 // - This enables re-evaluation of dynamic content with different data.
 func (jc *Compiler) walk(n node.Node, staticBuffer *bytes.Buffer, plan *ExecutionPlan, path []int) {
-	// Attributes (e.g. .Class(variable)) are treated as static after first render  - 
+	// Attributes (e.g. .Class(variable)) are treated as static after first render  -
 	// their values are frozen at compile time. Use Tune() if values must change between renders.
 	if isDynamicNode(n) {
 		// Flush accumulated static content before recording the dynamic path,
