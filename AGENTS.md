@@ -466,6 +466,40 @@ DiffKey for targeted single-key diffs.
 
 ### Render function pattern
 
+Both nesting patterns work. The Memoiser propagates memo keys from
+ancestor Memoiser nodes to descendant Dynamic nodes:
+
+**Pattern 1: Memoise inside Dynamic (preferred)**
+
+The Memoiser finds the key on the Dynamic node's child. On a cache
+hit, the closure never executes - maximum performance.
+
+```go
+div.New(
+    node.Memoise(s.Items.Version(), func() node.Node {
+        return renderTable(s.Items.Val)
+    }),
+).Dynamic("items")
+```
+
+**Pattern 2: Memoise wrapping Dynamic**
+
+The Memoiser propagates the ancestor key to the Dynamic descendant.
+On a cache hit, the snapshot comparison is skipped. The closure still
+executes to produce the tree structure, but no HTML is generated.
+
+```go
+node.Memoise(s.Items.Version(), func() node.Node {
+    return itemsTable(s.Items.Val) // returns node with .Dynamic("items")
+})
+```
+
+Pattern 1 is preferred because the closure is fully skipped on a
+hit. Pattern 2 is supported for convenience when the Dynamic key is
+set inside a component.
+
+**Full example:**
+
 ```go
 func render(s State) node.Node {
     return div.New(
@@ -481,9 +515,10 @@ func render(s State) node.Node {
 }
 ```
 
-Dynamic regions without a `node.Memoise` child are always
-re-rendered (treated as a miss). The Memoiser does not fall back to
-content-based diffing for non-memoised nodes.
+Dynamic regions without a `node.Memoise` key (neither as a child nor
+as an ancestor) are always re-rendered (treated as a miss). The
+Memoiser does not fall back to content-based diffing for non-memoised
+nodes.
 
 ### Stats
 

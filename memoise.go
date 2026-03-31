@@ -61,7 +61,7 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.snapshots = make(map[string]*bytes.Buffer)
 	m.memoiseKeys = make(map[string]string)
 	m.order = nil
-	m.collectAll(root)
+	m.collectAll(root, "")
 	m.seeded = true
 
 	return root.Render(w...)
@@ -97,7 +97,7 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	misses := make(map[string]*bytes.Buffer)
 	newKeys := make(map[string]string, len(m.memoiseKeys))
 	currentOrder := make([]string, 0, len(m.order))
-	m.collectDiff(root, misses, newKeys, &currentOrder)
+	m.collectDiff(root, misses, newKeys, &currentOrder, "")
 
 	if !slices.Equal(m.order, currentOrder) {
 		for _, buf := range misses {
@@ -133,7 +133,24 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 // collectAll walks the tree for the initial Render. Every Dynamic
 // node is rendered and its memoisation key (if any) is recorded. This
 // establishes the baseline for subsequent Diff calls.
-func (m *Memoiser) collectAll(n node.Node) {
+//
+// memoKey carries the stringified key from the nearest ancestor
+// node.Memoiser. When a Dynamic node is reached, this ancestor key
+// is used if no direct child Memoiser is found. This allows both
+// nesting patterns to work:
+//
+//   - Dynamic > Memoise (child key found via findMemoiseKeyStr)
+//   - Memoise > Dynamic (ancestor key propagated via memoKey)
+func (m *Memoiser) collectAll(n node.Node, memoKey string) {
+	// Capture memo key from wrapper Memoiser nodes. The key
+	// propagates to any Dynamic descendant that does not have
+	// its own direct Memoiser child.
+	if memo, ok := n.(node.Memoiser); ok {
+		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
+			memoKey = mk
+		}
+	}
+
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
@@ -142,7 +159,14 @@ func (m *Memoiser) collectAll(n node.Node) {
 			m.snapshots[key] = buf
 			m.order = append(m.order, key)
 
-			if mk := findMemoiseKeyStr(n); mk != "" {
+			// Prefer a direct child Memoiser (Dynamic > Memoise
+			// pattern). Fall back to the ancestor key (Memoise >
+			// Dynamic pattern).
+			mk := findMemoiseKeyStr(n)
+			if mk == "" {
+				mk = memoKey
+			}
+			if mk != "" {
 				m.memoiseKeys[key] = mk
 				if el, ok := n.(node.Element); ok {
 					el.SetAttribute("data-tether-memoise", mk)
@@ -153,7 +177,7 @@ func (m *Memoiser) collectAll(n node.Node) {
 	}
 	for _, child := range n.Nodes() {
 		if child != nil {
-			m.collectAll(child)
+			m.collectAll(child, memoKey)
 		}
 	}
 }
@@ -162,13 +186,27 @@ func (m *Memoiser) collectAll(n node.Node) {
 // it checks whether the memoisation key matches the previous render. Hits
 // are skipped entirely - no buffer allocated, no render. Misses are
 // rendered into fresh buffers in the misses map.
-func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string) {
+//
+// memoKey carries the stringified key from the nearest ancestor
+// node.Memoiser, matching the propagation in collectAll.
+func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string, memoKey string) {
+	// Capture memo key from wrapper Memoiser nodes.
+	if memo, ok := n.(node.Memoiser); ok {
+		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
+			memoKey = mk
+		}
+	}
+
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
 			*order = append(*order, key)
 
+			// Prefer direct child Memoiser, fall back to ancestor.
 			mk := findMemoiseKeyStr(n)
+			if mk == "" {
+				mk = memoKey
+			}
 			if mk != "" {
 				keys[key] = mk
 				// Hit: same key as previous render. Skip entirely.
@@ -193,7 +231,7 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 	}
 	for _, child := range n.Nodes() {
 		if child != nil {
-			m.collectDiff(child, misses, keys, order)
+			m.collectDiff(child, misses, keys, order, memoKey)
 		}
 	}
 }
