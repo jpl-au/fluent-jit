@@ -152,7 +152,9 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	// Compare each keyed element's rendered output and build patches.
 	// Unchanged keys reuse the previous buffer (returned to pool
 	// immediately) to avoid keeping two copies of identical content.
-	var patches []Patch
+	// Initialise as non-nil so callers can distinguish "nothing
+	// changed" (empty slice) from "unseeded" (nil).
+	patches := []Patch{}
 	for _, key := range currentOrder {
 		cur := current[key]
 		prev := d.snapshots[key]

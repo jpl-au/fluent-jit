@@ -111,7 +111,9 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 
 	// Compare misses and replace snapshots in a single pass. Hits
 	// are identical by definition and not in the misses map.
-	var patches []Patch
+	// Initialise as non-nil so callers can distinguish "nothing
+	// changed" (empty slice) from "unseeded" (nil).
+	patches := []Patch{}
 	for key, cur := range misses {
 		prev := m.snapshots[key]
 		if prev == nil || !bytes.Equal(cur.Bytes(), prev.Bytes()) {
