@@ -2,13 +2,24 @@
 
 Just-In-Time optimisation strategies for the [Fluent](https://github.com/jpl-au/fluent) HTML5 component framework.
 
-## Three types of JIT
+## Features
 
-**Compile static content.** Pre-render static portions of your templates once into a []byte, then execute a linear plan on subsequent renders. Dynamic content is re-evaluated at runtime using path-based navigation.
+**Compile static content.** Pre-render static portions of your templates once into a `[]byte`, then execute a linear plan on subsequent renders. Dynamic content is re-evaluated at runtime using path-based navigation.
 
 **Adaptive buffer sizing.** Learn optimal buffer sizes over repeated renders. Reduces memory allocations and garbage collection pressure without manual tuning.
 
 **Flatten for maximum speed.** For fully static content, pre-render everything to a single `[]byte` that's returned directly on every call. Strategy largely expects the use of `.Static()` calls. Dynamic nodes will cause an error when attempting to render.
+
+**Diff engine.** Track keyed dynamic elements across renders and produce targeted patches for live updates. Powers [Tether](https://github.com/jpl-au/tether)'s reactive UI but works standalone. Supports full-tree diffs and single-key diffs via `DiffKey`.
+
+**Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. Wraps content in `node.Memoise` with a cache key - when the key matches the previous render, the closure never runs. Use one or the other per session.
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) - add JIT to your Fluent app, step by step
+- [Differ](docs/diff.md) - keyed element tracking, targeted patches, snapshot persistence
+- [Memoiser](docs/memoise.md) - skip unchanged subtrees with cache keys
+- `AGENTS.md` - comprehensive technical reference for LLMs
 
 ## Install
 
@@ -230,10 +241,6 @@ jit.ResetCompile()
 jit.ResetTune()
 jit.ResetFlatten()
 ```
-
-## Documentation for LLMs
-
-- `AGENTS.md` - Technical reference for JIT optimisation strategies, Differ, Memoiser, DiffKey, and API details
 
 ## When to Use JIT
 

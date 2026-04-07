@@ -2,4 +2,4 @@ module github.com/jpl-au/fluent-jit
 
 go 1.25.0
 
-require github.com/jpl-au/fluent v0.3.0-rc1
+require github.com/jpl-au/fluent v0.3.0
