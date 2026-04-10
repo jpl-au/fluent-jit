@@ -1,6 +1,7 @@
 package jit
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -95,6 +96,60 @@ func TestDiffKeyDoesNotAffectOtherKeys(t *testing.T) {
 	patches, _ := d.Diff(tree2)
 	if len(patches) != 0 {
 		t.Errorf("expected no patches (DiffKey already updated 'a'), got %d", len(patches))
+	}
+}
+
+// TestDiffKeyNestedInsideDynamicParent verifies that DiffKey works
+// when the targeted key is nested inside a Dynamic parent container.
+// This is the minimal reproduction of a real bug in the patch demo:
+// a page-level Dynamic("page") wrapper contained many row-level
+// Dynamic("row-N") children, and sess.Patch updates to the rows were
+// orphaned because collectSnapshots treated the page key as a
+// terminal snapshot and never walked into the children.
+//
+// After the fix, every Dynamic key in the tree is tracked
+// independently regardless of nesting, so DiffKey and the subsequent
+// full Diff interact correctly.
+func TestDiffKeyNestedInsideDynamicParent(t *testing.T) {
+	d := NewDiffer()
+
+	// A page wrapper (Dynamic) containing two rows (also Dynamic).
+	makeTree := func(a, b string) node.Node {
+		return div.New(
+			span.Text(a).Dynamic("row-a"),
+			span.Text(b).Dynamic("row-b"),
+		).Dynamic("page")
+	}
+
+	// Initial render: all zeros.
+	d.Render(makeTree("0", "0"))
+
+	// Patch row-a to "1" via DiffKey. This simulates a ticker or
+	// background goroutine calling sess.Patch.
+	patch := d.DiffKey("row-a", span.Text("1").Dynamic("row-a"))
+	if patch == nil {
+		t.Fatal("DiffKey should produce a patch for the nested key")
+	}
+
+	// Now simulate a Handle event that resets state back to all
+	// zeros. A full Diff should detect that the previously-patched
+	// row-a has a stale snapshot and produce a patch to restore it.
+	patches, change := d.Diff(makeTree("0", "0"))
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+
+	foundRowA := false
+	for _, p := range patches {
+		if p.Key == "row-a" {
+			foundRowA = true
+			if !bytes.Contains(p.HTML, []byte(">0<")) {
+				t.Errorf("expected row-a patch to restore value 0, got HTML: %s", p.HTML)
+			}
+		}
+	}
+	if !foundRowA {
+		t.Errorf("expected a patch for row-a after full Diff, got %d patches: %v", len(patches), patches)
 	}
 }
 

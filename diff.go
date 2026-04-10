@@ -374,6 +374,18 @@ func (d *Differ) Clear() {
 // Once a keyed node is found its children are not searched for further
 // keys. This avoids redundant patches when both a parent and child are
 // keyed - only the outermost key is tracked.
+// collectSnapshots walks the render tree and captures a snapshot for
+// every Dynamic node with a real key (non-empty and not "_"). Unlike
+// an earlier design that treated parent keys as terminal snapshots,
+// the walker always descends into children so that nested Dynamic
+// keys are tracked independently.
+//
+// Tracking every Dynamic key separately is required for sess.Patch:
+// a patch to a child key inside a Dynamic parent must work even when
+// the parent's content as a whole has not changed. Without descending,
+// child keys would be orphaned in the snapshot map (added by DiffKey
+// but never tracked in the order slice), and a subsequent full Diff
+// would silently skip them.
 func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
@@ -382,7 +394,6 @@ func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]
 			n.RenderBuilder(buf)
 			snapshots[key] = buf
 			*order = append(*order, key)
-			return
 		}
 	}
 	for _, child := range n.Nodes() {
