@@ -49,7 +49,7 @@ jit.Compile("homepage", myTemplate, w)
 
 **How it works:**
 - Static subtrees become raw `[]byte` chunks
-- Dynamic nodes (`Text()`, `Textf()`, `RawText()`, `RawTextf()`, `Condition()`, `Func()`, `Funcs()`, `security.Sanitise()`) store paths for tree navigation
+- Dynamic nodes (`Text()`, `Textf()`, `RawText()`, `RawTextf()`, `Condition()`, `Func()`, `Funcs()`) store paths for tree navigation
 - Adaptive buffer sizing optimises memory allocation over time
 
 **Important:** The compiler expects the same tree structure on each call. Static content is frozen at first render; dynamic content is re-evaluated from the new tree.

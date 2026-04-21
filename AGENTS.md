@@ -22,7 +22,6 @@ The JIT strategies distinguish between static and dynamic content:
 - `RawText()`, `RawTextf()` - unescaped dynamic text
 - `node.Condition()` - conditional rendering
 - `node.Func()`, `node.Funcs()` - function components
-- `security.Sanitise()` - sanitised content validation
 
 ```go
 div.New(
