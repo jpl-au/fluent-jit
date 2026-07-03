@@ -40,6 +40,15 @@ type Memoiser struct {
 	// most recent Diff call. Read them via Stats() after Diff returns.
 	lastHits   int
 	lastMisses int
+
+	// lastSharedHits and lastSharedMisses track how many misses were
+	// served from (or added to) the process-global shared cache during
+	// the most recent Diff. Read them via SharedStats(). A shared hit
+	// is also counted as a memoise miss - the per-session key changed,
+	// but the render was still avoided by reusing another session's
+	// bytes.
+	lastSharedHits   int
+	lastSharedMisses int
 }
 
 // NewMemoiser creates an empty Memoiser ready for use.
@@ -61,7 +70,7 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.snapshots = make(map[string]*bytes.Buffer)
 	m.memoiseKeys = make(map[string]string)
 	m.order = nil
-	m.collectAll(root, "")
+	m.collectAll(root, "", false)
 	m.seeded = true
 
 	return root.Render(w...)
@@ -90,6 +99,8 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 
 	m.lastHits = 0
 	m.lastMisses = 0
+	m.lastSharedHits = 0
+	m.lastSharedMisses = 0
 
 	// Collect the current order and identify misses. Hits skip
 	// entirely - no buffer allocated, no render, no comparison.
@@ -97,7 +108,7 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	misses := make(map[string]*bytes.Buffer)
 	newKeys := make(map[string]string, len(m.memoiseKeys))
 	currentOrder := make([]string, 0, len(m.order))
-	m.collectDiff(root, misses, newKeys, &currentOrder, "")
+	m.collectDiff(root, misses, newKeys, &currentOrder, "", false)
 
 	if !slices.Equal(m.order, currentOrder) {
 		for _, buf := range misses {
@@ -141,43 +152,51 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 //
 //   - Dynamic > Memoise (child key found via findMemoiseKeyStr)
 //   - Memoise > Dynamic (ancestor key propagated via memoKey)
-func (m *Memoiser) collectAll(n node.Node, memoKey string) {
+func (m *Memoiser) collectAll(n node.Node, memoKey string, memoShared bool) {
 	// Capture memo key from wrapper Memoiser nodes. The key
 	// propagates to any Dynamic descendant that does not have
 	// its own direct Memoiser child.
 	if memo, ok := n.(node.Memoiser); ok {
 		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
 			memoKey = mk
+			memoShared = isSharedMemoiser(memo)
 		}
 	}
 
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
 		if key != "" && key != "_" {
-			buf := fluent.NewBuffer(SnapshotHint)
-			n.RenderBuilder(buf)
-			m.snapshots[key] = buf
-			m.order = append(m.order, key)
-
 			// Prefer a direct child Memoiser (Dynamic > Memoise
 			// pattern). Fall back to the ancestor key (Memoise >
 			// Dynamic pattern).
-			mk := findMemoiseKeyStr(n)
+			mk, shared := findMemoise(n)
 			if mk == "" {
-				mk = memoKey
+				mk, shared = memoKey, memoShared
 			}
+
+			var buf *bytes.Buffer
+			if mk != "" && shared {
+				buf = m.renderShared(n, mk)
+			} else {
+				if mk != "" {
+					if el, ok := n.(node.Element); ok {
+						el.SetAttribute("data-tether-memoise", mk)
+					}
+				}
+				buf = fluent.NewBuffer(SnapshotHint)
+				n.RenderBuilder(buf)
+			}
+			m.snapshots[key] = buf
+			m.order = append(m.order, key)
 			if mk != "" {
 				m.memoiseKeys[key] = mk
-				if el, ok := n.(node.Element); ok {
-					el.SetAttribute("data-tether-memoise", mk)
-				}
 			}
 			return
 		}
 	}
 	for _, child := range n.Nodes() {
 		if child != nil {
-			m.collectAll(child, memoKey)
+			m.collectAll(child, memoKey, memoShared)
 		}
 	}
 }
@@ -189,11 +208,12 @@ func (m *Memoiser) collectAll(n node.Node, memoKey string) {
 //
 // memoKey carries the stringified key from the nearest ancestor
 // node.Memoiser, matching the propagation in collectAll.
-func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string, memoKey string) {
+func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string, memoKey string, memoShared bool) {
 	// Capture memo key from wrapper Memoiser nodes.
 	if memo, ok := n.(node.Memoiser); ok {
 		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
 			memoKey = mk
+			memoShared = isSharedMemoiser(memo)
 		}
 	}
 
@@ -203,9 +223,9 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 			*order = append(*order, key)
 
 			// Prefer direct child Memoiser, fall back to ancestor.
-			mk := findMemoiseKeyStr(n)
+			mk, shared := findMemoise(n)
 			if mk == "" {
-				mk = memoKey
+				mk, shared = memoKey, memoShared
 			}
 			if mk != "" {
 				keys[key] = mk
@@ -216,8 +236,14 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 				}
 			}
 
-			// Miss: inject the memoisation key and render the node.
+			// Miss: the per-session key changed. A shared region can
+			// still avoid the render by reusing another session's bytes
+			// from the process-global cache.
 			m.lastMisses++
+			if mk != "" && shared {
+				misses[key] = m.renderShared(n, mk)
+				return
+			}
 			if mk != "" {
 				if el, ok := n.(node.Element); ok {
 					el.SetAttribute("data-tether-memoise", mk)
@@ -231,23 +257,55 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 	}
 	for _, child := range n.Nodes() {
 		if child != nil {
-			m.collectDiff(child, misses, keys, order, memoKey)
+			m.collectDiff(child, misses, keys, order, memoKey, memoShared)
 		}
 	}
 }
 
-// findMemoiseKeyStr checks the immediate children of a node for a
-// [node.Memoiser] and returns the key as a string. The conversion
-// uses type-switched strconv for common types (zero reflection,
-// zero allocation for string keys). Returns "" if no memoised child
-// is found.
-func findMemoiseKeyStr(n node.Node) string {
+// findMemoise checks the immediate children of a node for a
+// [node.Memoiser] and returns its key as a string, plus whether that
+// child opts into cross-session sharing ([node.Shared]). The key
+// conversion uses type-switched strconv for common types (zero
+// reflection, zero allocation for string keys). Returns ("", false)
+// if no memoised child is found.
+func findMemoise(n node.Node) (key string, shared bool) {
 	for _, child := range n.Nodes() {
 		if memo, ok := child.(node.Memoiser); ok {
-			return memoiseKeyToString(memo.MemoiseKey())
+			return memoiseKeyToString(memo.MemoiseKey()), isSharedMemoiser(memo)
 		}
 	}
-	return ""
+	return "", false
+}
+
+// isSharedMemoiser reports whether a memoised node opts into
+// cross-session sharing. Nodes created with [node.Memoise] do not
+// implement [node.SharedMemoiser] and so are never shared.
+func isSharedMemoiser(memo node.Memoiser) bool {
+	sm, ok := memo.(node.SharedMemoiser)
+	return ok && sm.MemoiseShared()
+}
+
+// renderShared returns the rendered bytes for a shared Dynamic region,
+// serving them from the process-global cache when another session has
+// already rendered the same key. The returned buffer is pooled and
+// becomes the caller's snapshot; the cache keeps its own immutable copy.
+// A cache hit skips the closure entirely - the whole point of sharing.
+func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
+	if cached, ok := sharedCache.get(mk); ok {
+		m.lastSharedHits++
+		buf := fluent.NewBuffer(len(cached))
+		buf.Write(cached)
+		return buf
+	}
+
+	m.lastSharedMisses++
+	if el, ok := n.(node.Element); ok {
+		el.SetAttribute("data-tether-memoise", mk)
+	}
+	buf := fluent.NewBuffer(SnapshotHint)
+	n.RenderBuilder(buf)
+	sharedCache.put(mk, buf.Bytes())
+	return buf
 }
 
 // memoiseKeyToString converts a memoisation key to a string using fast paths
@@ -317,6 +375,18 @@ func (m *Memoiser) Stats() (hits, misses int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastHits, m.lastMisses
+}
+
+// SharedStats returns how many memoise misses in the most recent Diff
+// were resolved through the process-global shared cache: hits reused
+// another session's rendered bytes, misses rendered fresh and populated
+// the cache for others. Both counts are a subset of the miss count from
+// [Memoiser.Stats] - a shared region only reaches the cache when its
+// per-session key changed. Call immediately after Diff.
+func (m *Memoiser) SharedStats() (hits, misses int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastSharedHits, m.lastSharedMisses
 }
 
 // returnBuffers returns all stored snapshot buffers to the pool.
