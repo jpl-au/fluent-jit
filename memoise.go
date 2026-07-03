@@ -377,6 +377,17 @@ func (m *Memoiser) Stats() (hits, misses int) {
 	return m.lastHits, m.lastMisses
 }
 
+// Memoised reports how many Dynamic regions carried a memoisation key
+// in the most recent Diff. Zero means the render tree used no
+// [node.Memoise] regions at all - the Memoiser is running but has
+// nothing to skip, degrading to plain diff behaviour. Callers use this
+// to detect a Memoise-enabled handler whose render forgot the keys.
+func (m *Memoiser) Memoised() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.memoiseKeys)
+}
+
 // SharedStats returns how many memoise misses in the most recent Diff
 // were resolved through the process-global shared cache: hits reused
 // another session's rendered bytes, misses rendered fresh and populated

@@ -187,6 +187,31 @@ func TestMemoiserClear(t *testing.T) {
 
 // TestMemoiserUnseedeedReturnsNil verifies Diff returns nil before
 // Render has been called.
+// TestMemoiserMemoisedCount verifies Memoised() reports the number of
+// keyed regions - zero when the render uses no node.Memoise, which is
+// how tether detects a Memoise-enabled handler that forgot the keys.
+func TestMemoiserMemoisedCount(t *testing.T) {
+	// No memoise nodes: a plain Dynamic region.
+	plain := NewMemoiser()
+	plainTree := div.New(span.Text("x").Dynamic("a"))
+	plain.Render(plainTree)
+	plain.Diff(plainTree)
+	if n := plain.Memoised(); n != 0 {
+		t.Errorf("plain render: Memoised() = %d, want 0", n)
+	}
+
+	// One memoised region.
+	memo := NewMemoiser()
+	memoTree := div.New(
+		div.New(node.Memoise("v1", func() node.Node { return span.Text("x") })).Dynamic("a"),
+	)
+	memo.Render(memoTree)
+	memo.Diff(memoTree)
+	if n := memo.Memoised(); n != 1 {
+		t.Errorf("memoised render: Memoised() = %d, want 1", n)
+	}
+}
+
 func TestMemoiserUnseedeedReturnsNil(t *testing.T) {
 	m := NewMemoiser()
 	tree := div.New(span.Text("hello").Dynamic("msg"))
