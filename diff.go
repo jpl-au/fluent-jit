@@ -154,8 +154,18 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	// immediately) to avoid keeping two copies of identical content.
 	// Initialise as non-nil so callers can distinguish "nothing
 	// changed" (empty slice) from "unseeded" (nil).
+	//
+	// Duplicate keys are invalid input (see Validate) but must not
+	// corrupt the buffer pool: processing the same key twice would
+	// return a buffer to the pool while it is still referenced as a
+	// snapshot, so a repeated key is skipped after its first visit.
 	patches := []Patch{}
+	seen := make(map[string]bool, len(currentOrder))
 	for _, key := range currentOrder {
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		cur := current[key]
 		prev := d.snapshots[key]
 		if bytes.Equal(cur.Bytes(), prev.Bytes()) {
@@ -392,6 +402,12 @@ func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]
 		if key != "" && key != "_" {
 			buf := fluent.NewBuffer(SnapshotHint)
 			n.RenderBuilder(buf)
+			// A duplicate key is invalid input, but the buffer it
+			// already holds must go back to the pool before being
+			// overwritten or it is lost to the pool entirely.
+			if prior, ok := snapshots[key]; ok {
+				fluent.PutBuffer(prior)
+			}
 			snapshots[key] = buf
 			*order = append(*order, key)
 		}

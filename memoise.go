@@ -186,6 +186,12 @@ func (m *Memoiser) collectAll(n node.Node, memoKey string, memoShared bool) {
 				buf = fluent.NewBuffer(SnapshotHint)
 				n.RenderBuilder(buf)
 			}
+			// A duplicate key is invalid input, but the buffer it
+			// already holds must go back to the pool before being
+			// overwritten or it is lost to the pool entirely.
+			if prior, ok := m.snapshots[key]; ok {
+				fluent.PutBuffer(prior)
+			}
 			m.snapshots[key] = buf
 			m.order = append(m.order, key)
 			if mk != "" {
@@ -240,6 +246,12 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 			// still avoid the render by reusing another session's bytes
 			// from the process-global cache.
 			m.lastMisses++
+			// A duplicate key is invalid input, but the buffer it
+			// already holds must go back to the pool before being
+			// overwritten or it is lost to the pool entirely.
+			if prior, ok := misses[key]; ok {
+				fluent.PutBuffer(prior)
+			}
 			if mk != "" && shared {
 				misses[key] = m.renderShared(n, mk)
 				return

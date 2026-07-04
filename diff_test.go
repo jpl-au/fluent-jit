@@ -3,6 +3,7 @@ package jit
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -797,5 +798,45 @@ func BenchmarkDifferDiffWithChanges(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		differ.Diff(tree2)
+	}
+}
+
+// TestDifferDuplicateKeysDoNotCorruptPool guards the buffer pool against
+// duplicate dynamic keys. Duplicates are invalid input (Validate rejects
+// them), but before the guard in Diff the second visit to a repeated key
+// returned the live snapshot buffer to the pool. A later render would
+// reuse that buffer, the comparison saw its own bytes on both sides, and
+// a real content change produced no patch.
+func TestDifferDuplicateKeysDoNotCorruptPool(t *testing.T) {
+	differ := NewDiffer()
+
+	tree := func(text string) node.Node {
+		return div.New(
+			span.Text(text).Dynamic("dup"),
+			span.Text(text).Dynamic("dup"),
+		)
+	}
+
+	differ.Render(tree("one"))
+
+	patches, change := differ.Diff(tree("one"))
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+	if len(patches) != 0 {
+		t.Fatalf("unchanged content should produce no patches, got %d", len(patches))
+	}
+
+	// The changed content must surface as exactly one patch. With a
+	// pooled-and-still-referenced snapshot this change went missing.
+	patches, change = differ.Diff(tree("two"))
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("changed content should produce 1 patch, got %d", len(patches))
+	}
+	if !strings.Contains(string(patches[0].HTML), "two") {
+		t.Errorf("patch should carry the new content, got %q", patches[0].HTML)
 	}
 }
