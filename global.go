@@ -113,13 +113,13 @@ func Flatten(id string, n node.Node, w ...io.Writer) []byte {
 		val = buf.Bytes()
 	}
 
-	bytes := val.([]byte) //nolint:forcetypeassert // type guaranteed by Store above
+	b := val.([]byte) //nolint:forcetypeassert // type guaranteed by Store above
 
 	if len(w) > 0 && w[0] != nil {
-		_, _ = w[0].Write(bytes)
+		_, _ = w[0].Write(b)
 		return nil
 	}
-	return bytes
+	return b
 }
 
 // ResetFlatten removes flattened static content from the global registry.
