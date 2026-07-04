@@ -18,7 +18,7 @@ func TestDiffKeyDetectsChange(t *testing.T) {
 		span.Text("old").Dynamic("target"),
 		span.Text("other").Dynamic("other"),
 	)
-	d.Render(tree)
+	d.RenderBytes(tree)
 
 	// DiffKey with new content for "target".
 	patch := d.DiffKey("target", span.Text("new").Dynamic("target"))
@@ -49,7 +49,7 @@ func TestDiffKeyNoChange(t *testing.T) {
 	d := NewDiffer()
 
 	tree := div.New(span.Text("same").Dynamic("target"))
-	d.Render(tree)
+	d.RenderBytes(tree)
 
 	patch := d.DiffKey("target", span.Text("same").Dynamic("target"))
 	if patch != nil {
@@ -63,7 +63,7 @@ func TestDiffKeyUnknownKey(t *testing.T) {
 	d := NewDiffer()
 
 	tree := div.New(span.Text("x").Dynamic("known"))
-	d.Render(tree)
+	d.RenderBytes(tree)
 
 	patch := d.DiffKey("unknown", span.Text("new"))
 	if patch == nil {
@@ -83,7 +83,7 @@ func TestDiffKeyDoesNotAffectOtherKeys(t *testing.T) {
 		span.Text("a").Dynamic("a"),
 		span.Text("b").Dynamic("b"),
 	)
-	d.Render(tree)
+	d.RenderBytes(tree)
 
 	// Change "a" via DiffKey.
 	d.DiffKey("a", span.Text("a-new").Dynamic("a"))
@@ -122,7 +122,7 @@ func TestDiffKeyNestedInsideDynamicParent(t *testing.T) {
 	}
 
 	// Initial render: all zeros.
-	d.Render(makeTree("0", "0"))
+	d.RenderBytes(makeTree("0", "0"))
 
 	// Patch row-a to "1" via DiffKey. This simulates a ticker or
 	// background goroutine calling sess.Patch.
@@ -163,7 +163,7 @@ func TestMemoiserDiffKey(t *testing.T) {
 			node.Memoise(1, func() node.Node { return span.Text("old") }),
 		).Dynamic("target"),
 	)
-	m.Render(tree)
+	m.RenderBytes(tree)
 
 	patch := m.DiffKey("target",
 		div.New(

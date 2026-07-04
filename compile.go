@@ -146,8 +146,10 @@ func (jc *Compiler) Validate(root node.Node) error {
 	return nil
 }
 
-// Render builds the execution plan on first call, then renders the node.
-// Subsequent calls reuse the existing plan with fresh dynamic content from the provided tree.
+// Render builds the execution plan on first call, then renders the node
+// to w. Subsequent calls reuse the existing plan with fresh dynamic
+// content from the provided tree. Write errors are discarded - use
+// WriteTo to observe them.
 //
 // Static content (including attributes) is frozen from the first call.
 // Dynamic content is re-evaluated from the provided tree on each call.
@@ -158,36 +160,41 @@ func (jc *Compiler) Validate(root node.Node) error {
 //	compiler.Render(UserCard("Alice", 30), w)  // builds plan + renders Alice
 //	compiler.Render(UserCard("Bob", 25), w)    // reuses plan, renders Bob
 //	compiler.Render(UserCard("Dan", 40), w)    // reuses plan, renders Dan
-func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
-	jc.compileOnce.Do(func() {
-		jc.executionPlan = jc.compile(root)
-	})
+func (jc *Compiler) Render(root node.Node, w io.Writer) {
+	_, _ = jc.WriteTo(root, w)
+}
 
-	plan := jc.executionPlan
+// WriteTo renders the node to w using the compiled plan, returning the
+// byte count and any write error.
+func (jc *Compiler) WriteTo(root node.Node, w io.Writer) (int64, error) {
+	plan := jc.plan(root)
+	if plan == nil {
+		return 0, nil
+	}
+
+	predictedSize := jc.sizer.GetBaseline()
+	buf := fluent.NewBuffer(predictedSize)
+	for _, element := range plan.Elements {
+		element.Render(root, buf)
+	}
+	actualSize := buf.Len()
+	if jc.shouldUpdateStats(predictedSize, actualSize) {
+		jc.sizer.UpdateStats(actualSize)
+	}
+	n, err := buf.WriteTo(w)
+	fluent.PutBuffer(buf)
+	return n, err
+}
+
+// RenderBytes renders the node using the compiled plan and returns the
+// HTML as a byte slice.
+func (jc *Compiler) RenderBytes(root node.Node) []byte {
+	plan := jc.plan(root)
 	if plan == nil {
 		return nil
 	}
 
 	predictedSize := jc.sizer.GetBaseline()
-
-	// With writer: use pooled buffer, write, then return to pool
-	if len(w) > 0 && w[0] != nil {
-		buf := fluent.NewBuffer(predictedSize)
-		for _, element := range plan.Elements {
-			element.Render(root, buf)
-		}
-		actualSize := buf.Len()
-		if jc.shouldUpdateStats(predictedSize, actualSize) {
-			jc.sizer.UpdateStats(actualSize)
-		}
-		// Write errors are not actionable mid-render - a closed connection can't be
-		// recovered, and the caller controls the writer's error handling.
-		_, _ = buf.WriteTo(w[0])
-		fluent.PutBuffer(buf)
-		return nil
-	}
-
-	// Without writer: use local buffer with predicted capacity
 	buf := bytes.NewBuffer(make([]byte, 0, predictedSize))
 	for _, element := range plan.Elements {
 		element.Render(root, buf)
@@ -197,6 +204,14 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 		jc.sizer.UpdateStats(actualSize)
 	}
 	return buf.Bytes()
+}
+
+// plan returns the execution plan, building it from root on first use.
+func (jc *Compiler) plan(root node.Node) *ExecutionPlan {
+	jc.compileOnce.Do(func() {
+		jc.executionPlan = jc.compile(root)
+	})
+	return jc.executionPlan
 }
 
 // compile builds the execution plan:

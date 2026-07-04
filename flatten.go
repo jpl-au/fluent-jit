@@ -29,12 +29,21 @@ func NewFlattener(n node.Node) (*Flattener, error) {
 	}, nil
 }
 
-// Render writes the pre-rendered bytes to the writer or returns them.
-// No rendering logic is executed - this is a direct byte slice write.
-func (f *Flattener) Render(w ...io.Writer) []byte {
-	if len(w) > 0 && w[0] != nil {
-		_, _ = w[0].Write(f.bytes)
-		return nil
-	}
+// Render writes the pre-rendered bytes to w. No rendering logic is
+// executed - this is a direct byte slice write. Write errors are
+// discarded - use WriteTo to observe them.
+func (f *Flattener) Render(w io.Writer) {
+	_, _ = f.WriteTo(w)
+}
+
+// WriteTo writes the pre-rendered bytes to w, returning the byte count
+// and any write error.
+func (f *Flattener) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(f.bytes)
+	return int64(n), err
+}
+
+// RenderBytes returns the pre-rendered bytes directly.
+func (f *Flattener) RenderBytes() []byte {
 	return f.bytes
 }

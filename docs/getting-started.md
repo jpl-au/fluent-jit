@@ -25,7 +25,7 @@ var tuner = jit.NewTuner()
 
 func handler(w http.ResponseWriter, r *http.Request) {
     page := buildPage(r)
-    tuner.Tune(page).Render(w)
+    tuner.Render(page, w)
 }
 ```
 
@@ -58,7 +58,7 @@ var headerFlat, _ = jit.NewFlattener(
 
 func handler(w http.ResponseWriter, r *http.Request) {
     headerFlat.Render(w)      // raw bytes, no rendering
-    tuner.Tune(page).Render(w) // dynamic content
+    tuner.Render(page, w) // dynamic content
 }
 ```
 
@@ -105,7 +105,7 @@ The Differ compares renders and produces targeted patches:
 differ := jit.NewDiffer()
 
 // Initial render
-html := differ.Render(render(state))
+html := differ.RenderBytes(render(state))
 
 // After state change
 state.Count++
@@ -113,7 +113,7 @@ patches, change := differ.Diff(render(state))
 
 if change != nil {
     // Keys were added, removed, or reordered - full re-render needed
-    html = differ.Render(render(state))
+    html = differ.RenderBytes(render(state))
 } else {
     for _, p := range patches {
         // p.Key = "count", p.HTML = new rendered content

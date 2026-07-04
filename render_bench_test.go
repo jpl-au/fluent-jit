@@ -51,14 +51,14 @@ func plainBenchTree(n int) node.Node {
 func BenchmarkDifferRender50(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
-		NewDiffer().Render(plainBenchTree(50))
+		NewDiffer().RenderBytes(plainBenchTree(50))
 	}
 }
 
 func BenchmarkMemoiserRender50(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
-		NewMemoiser().Render(memoBenchTree(50))
+		NewMemoiser().RenderBytes(memoBenchTree(50))
 	}
 }
 
@@ -84,11 +84,11 @@ func BenchmarkMemoiserRender50_SharedHit(b *testing.B) {
 		return div.New(children...)
 	}
 	// Populate the cache once so every benchmark iteration hits.
-	NewMemoiser().Render(tree())
+	NewMemoiser().RenderBytes(tree())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		NewMemoiser().Render(tree())
+		NewMemoiser().RenderBytes(tree())
 	}
 }
 
@@ -145,7 +145,7 @@ func closureBenchTree(n int) func(int) node.Node {
 func BenchmarkDifferDiff50_Nested(b *testing.B) {
 	tree := nestedBenchTree(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
@@ -156,7 +156,7 @@ func BenchmarkDifferDiff50_Nested(b *testing.B) {
 func BenchmarkDifferDiff50_Closures(b *testing.B) {
 	tree := closureBenchTree(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {

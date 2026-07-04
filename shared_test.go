@@ -36,8 +36,8 @@ func TestSharedCacheReusesAcrossSessions(t *testing.T) {
 	b := NewMemoiser()
 
 	// Both sessions start at v1 and are seeded.
-	a.Render(sharedTree(1, &callsA))
-	b.Render(sharedTree(1, &callsB))
+	a.RenderBytes(sharedTree(1, &callsA))
+	b.RenderBytes(sharedTree(1, &callsB))
 
 	// The shared data changes to v2. Session A diffs first and renders
 	// it; session B diffs second and should reuse A's bytes.
@@ -79,7 +79,7 @@ func TestSharedCacheStoresRenderedFragment(t *testing.T) {
 
 	var calls int
 	m := NewMemoiser()
-	m.Render(sharedTree(1, &calls))
+	m.RenderBytes(sharedTree(1, &calls))
 
 	if n := SharedCacheLen(); n != 1 {
 		t.Errorf("seed should have cached one fragment, cache has %d", n)
@@ -92,7 +92,7 @@ func TestMemoiseDoesNotShare(t *testing.T) {
 	ResetSharedCache()
 
 	m := NewMemoiser()
-	m.Render(div.New(
+	m.RenderBytes(div.New(
 		div.New(
 			node.Memoise("v1", func() node.Node { return span.Text("plain") }),
 		).Dynamic("nav"),
@@ -117,9 +117,9 @@ func TestSharedCacheKeysDoNotCollide(t *testing.T) {
 	}
 
 	a := NewMemoiser()
-	a.Render(tree("a:v1", "alpha"))
+	a.RenderBytes(tree("a:v1", "alpha"))
 	b := NewMemoiser()
-	b.Render(tree("b:v1", "beta"))
+	b.RenderBytes(tree("b:v1", "beta"))
 
 	// Diff each to the other's key would be a structural no-op (same
 	// Dynamic key "region"), so instead diff each forward and confirm
@@ -142,7 +142,7 @@ func TestSharedCacheBounded(t *testing.T) {
 
 	var calls int
 	m := NewMemoiser()
-	m.Render(sharedTree(0, &calls))
+	m.RenderBytes(sharedTree(0, &calls))
 	for v := 1; v <= 20; v++ {
 		m.Diff(sharedTree(v, &calls))
 	}
@@ -162,10 +162,10 @@ func TestSharedCacheHitStillMarksElement(t *testing.T) {
 
 	var callsA, callsB int
 	a := NewMemoiser()
-	a.Render(sharedTree(1, &callsA)) // populates the cache
+	a.RenderBytes(sharedTree(1, &callsA)) // populates the cache
 
 	b := NewMemoiser()
-	html := string(b.Render(sharedTree(1, &callsB)))
+	html := string(b.RenderBytes(sharedTree(1, &callsB)))
 	if !strings.Contains(html, "data-tether-memoise") || !strings.Contains(html, "nav:v1") {
 		t.Errorf("cache-hit render should carry the memoise attribute in the page HTML, got:\n%s", html)
 	}
@@ -206,13 +206,13 @@ func TestSharedCacheHitSkipsClosureOnRender(t *testing.T) {
 
 	var callsA, callsB int
 	a := NewMemoiser()
-	pageA := string(a.Render(sharedTree(1, &callsA)))
+	pageA := string(a.RenderBytes(sharedTree(1, &callsA)))
 	if callsA != 1 {
 		t.Fatalf("populating session should run the closure once, ran %d times", callsA)
 	}
 
 	b := NewMemoiser()
-	pageB := string(b.Render(sharedTree(1, &callsB)))
+	pageB := string(b.RenderBytes(sharedTree(1, &callsB)))
 	if callsB != 0 {
 		t.Errorf("cache-hit render should not run the closure, ran %d times", callsB)
 	}

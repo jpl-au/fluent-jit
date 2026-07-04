@@ -48,7 +48,7 @@
 // means every closure runs on every diff, even if nothing changed.
 //
 //	differ := jit.NewDiffer()
-//	html := differ.Render(buildTree(state))     // initial render
+//	html := differ.RenderBytes(buildTree(state))  // initial render
 //	patches, change := differ.Diff(buildTree(newState))  // full re-render + compare
 //
 // The Memoiser is key-based. Each Dynamic region wraps its content in
@@ -58,7 +58,7 @@
 // the closure runs and the result is compared against the snapshot.
 //
 //	memoiser := jit.NewMemoiser()
-//	html := memoiser.Render(buildTree(state))   // initial render
+//	html := memoiser.RenderBytes(buildTree(state)) // initial render
 //	patches, change := memoiser.Diff(buildTree(newState)) // skips unchanged closures
 //
 // Use Differ when:

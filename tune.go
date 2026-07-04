@@ -3,7 +3,6 @@ package jit
 import (
 	"bytes"
 	"io"
-	"sync"
 
 	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
@@ -17,12 +16,13 @@ import (
 // 1. Sampling phase: Collects render size samples to establish optimal buffer size
 // 2. Baseline phase: Uses established size with variance monitoring for pattern changes
 //
-// This approach is ideal for templates with dynamic content that varies significantly.
+// This approach is ideal for templates with dynamic content that varies
+// significantly. The tuner holds no template state - the node to render
+// is passed to each call - so one Tuner is safe to share across
+// concurrent requests; only the sizing statistics are shared.
 type Tuner struct {
-	rootNode node.Node      // current template to render
-	sizer    *AdaptiveSizer // shared adaptive sizing logic
-	mu       sync.RWMutex   // protects rootNode access during concurrent usage
-	cfg      *TunerCfg      // optional custom configuration
+	sizer *AdaptiveSizer // shared adaptive sizing logic
+	cfg   *TunerCfg      // optional custom configuration
 }
 
 // NewTuner creates a tuner with adaptive sizing defaults.
@@ -61,61 +61,38 @@ func (jt *Tuner) Configure(max int, variance, growthFactor int) *Tuner {
 	return jt
 }
 
-// Tune sets the template to render with adaptive buffer sizing.
-// Returns the same instance for method chaining.
-//
-// The stored node is shared state: if concurrent goroutines each call
-// Tune with their own tree before calling Render, one may render the
-// other's content. Do not stage request-specific data through a shared
-// Tuner - give each concurrent caller its own Tuner, or use the global
-// [Tune] function, which renders the given node directly.
-func (jt *Tuner) Tune(root node.Node) *Tuner {
-	jt.mu.Lock()
-	jt.rootNode = root
-	jt.mu.Unlock()
-	return jt
+// Render renders the node to w with adaptive buffer sizing, feeding the
+// measured size back so future predictions improve. Write errors are
+// discarded - use WriteTo to observe them. A nil node renders nothing.
+func (jt *Tuner) Render(n node.Node, w io.Writer) {
+	_, _ = jt.WriteTo(n, w)
 }
 
-// Render executes the configured template with adaptive buffer sizing.
-// This method automatically optimises buffer allocation based on historical render sizes
-// and continuously updates statistics for future optimisation.
-// Returns nil if no template has been set via Tune.
-func (jt *Tuner) Render(w ...io.Writer) []byte {
-	var writer io.Writer
-	if len(w) > 0 {
-		writer = w[0]
+// WriteTo renders the node to w with adaptive buffer sizing, returning
+// the byte count and any write error. The buffer is pooled and sized by
+// the sizer's current baseline; the measured size feeds back into the
+// sizer, which detects pattern changes via variance monitoring.
+func (jt *Tuner) WriteTo(n node.Node, w io.Writer) (int64, error) {
+	// A nil node renders nothing - beats a nil dereference.
+	if n == nil {
+		return 0, nil
 	}
 
-	// Snapshot rootNode under read lock so the template can't change mid-render
-	jt.mu.RLock()
-	rootNode := jt.rootNode
-	jt.mu.RUnlock()
-
-	return jt.tune(rootNode, writer)
+	buf := fluent.NewBuffer(jt.sizer.GetBaseline())
+	n.RenderBuilder(buf)
+	jt.sizer.UpdateStats(buf.Len())
+	written, err := buf.WriteTo(w)
+	fluent.PutBuffer(buf)
+	return written, err
 }
 
-// tune performs the core adaptive rendering logic:
-// 1. Pre-allocates a buffer using the predicted size from adaptive sizing.
-// 2. Renders the template into the buffer.
-// 3. Feeds the actual size back to the sizer so future predictions improve.
-// 4. The sizer automatically detects pattern changes via variance monitoring.
-func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
-	// No template set - rendering nothing beats a nil dereference.
+// RenderBytes renders the node with adaptive buffer sizing and returns
+// the HTML as a byte slice. A nil node returns nil.
+func (jt *Tuner) RenderBytes(n node.Node) []byte {
 	if n == nil {
 		return nil
 	}
 
-	// With writer: use pooled buffer to avoid allocation, then return it to the pool
-	if w != nil {
-		buf := fluent.NewBuffer(jt.sizer.GetBaseline())
-		n.RenderBuilder(buf)
-		jt.sizer.UpdateStats(buf.Len())
-		_, _ = buf.WriteTo(w)
-		fluent.PutBuffer(buf)
-		return nil
-	}
-
-	// Without writer: use local buffer with predicted capacity
 	buf := bytes.NewBuffer(make([]byte, 0, jt.sizer.GetBaseline()))
 	n.RenderBuilder(buf)
 	jt.sizer.UpdateStats(buf.Len())

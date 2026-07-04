@@ -16,7 +16,7 @@ func TestTunerRender(t *testing.T) {
 	tuner := NewTuner()
 
 	tree := div.New(span.Text("hello"))
-	result := string(tuner.Tune(tree).Render())
+	result := string(tuner.RenderBytes(tree))
 
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
@@ -24,18 +24,19 @@ func TestTunerRender(t *testing.T) {
 	}
 }
 
-// TestTunerRenderToWriter verifies the optional io.Writer path. When a writer
-// is provided, Render writes directly to it and returns nil. This is the path
-// used by HTTP handlers that stream to the response writer.
+// TestTunerRenderToWriter verifies the writer path used by HTTP
+// handlers, and that WriteTo reports the byte count.
 func TestTunerRenderToWriter(t *testing.T) {
 	tuner := NewTuner()
 
 	tree := div.New(span.Static("hello"))
 	var buf bytes.Buffer
-	result := tuner.Tune(tree).Render(&buf)
-
-	if result != nil {
-		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
+	n, err := tuner.WriteTo(tree, &buf)
+	if err != nil {
+		t.Fatalf("WriteTo returned error: %v", err)
+	}
+	if n != int64(buf.Len()) {
+		t.Errorf("WriteTo reported %d bytes but wrote %d", n, buf.Len())
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -57,12 +58,12 @@ func TestTunerAdaptiveSizing(t *testing.T) {
 	// Render enough times for the sizer to collect its default 5 samples
 	// and establish a baseline buffer size.
 	for range 10 {
-		tuner.Tune(tree).Render()
+		tuner.RenderBytes(tree)
 	}
 
 	// After the sizer transitions to baseline phase, it pre-allocates buffers
 	// based on the learned size. Output must still be correct.
-	result := string(tuner.Tune(tree).Render())
+	result := string(tuner.RenderBytes(tree))
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
 		t.Errorf("output after adaptive sizing should be unchanged:\n  got  %q\n  want %q", result, expected)
@@ -79,14 +80,14 @@ func TestTunerReset(t *testing.T) {
 
 	// Let the sizer establish a baseline, then discard it.
 	for range 10 {
-		tuner.Tune(tree).Render()
+		tuner.RenderBytes(tree)
 	}
 
 	tuner.Reset()
 
 	// After reset the tuner re-enters sampling phase with no baseline.
 	// Output must still be correct during the re-learning period.
-	result := string(tuner.Tune(tree).Render())
+	result := string(tuner.RenderBytes(tree))
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
 		t.Errorf("output after reset should be correct while re-learning buffer sizes:\n  got  %q\n  want %q", result, expected)
@@ -105,7 +106,7 @@ func TestTunerWithConfiguration(t *testing.T) {
 	})
 
 	tree := div.Static("hello")
-	result := string(tuner.Tune(tree).Render())
+	result := string(tuner.RenderBytes(tree))
 
 	expected := "<div>hello</div>"
 	if result != expected {
@@ -113,15 +114,16 @@ func TestTunerWithConfiguration(t *testing.T) {
 	}
 }
 
-// TestTunerRenderWithoutTemplate verifies that Render on a tuner that
-// was never given a template returns nil instead of panicking.
-func TestTunerRenderWithoutTemplate(t *testing.T) {
-	if out := NewTuner().Render(); out != nil {
-		t.Errorf("Render without a template should return nil, got %q", out)
+// TestTunerNilNode verifies that rendering a nil node returns nil and
+// writes nothing instead of panicking.
+func TestTunerNilNode(t *testing.T) {
+	if out := NewTuner().RenderBytes(nil); out != nil {
+		t.Errorf("RenderBytes(nil) should return nil, got %q", out)
 	}
 
 	var buf bytes.Buffer
-	if out := NewTuner().Render(&buf); out != nil || buf.Len() != 0 {
-		t.Error("Render without a template should write nothing")
+	NewTuner().Render(nil, &buf)
+	if buf.Len() != 0 {
+		t.Error("Render(nil, w) should write nothing")
 	}
 }

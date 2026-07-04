@@ -20,7 +20,7 @@ func TestCompilerStaticOnly(t *testing.T) {
 	compiler := NewCompiler()
 
 	tree := div.New(span.Static("hello"), p.Static("world"))
-	result := string(compiler.Render(tree))
+	result := string(compiler.RenderBytes(tree))
 
 	expected := "<div><span>hello</span><p>world</p></div>"
 	if result != expected {
@@ -42,7 +42,7 @@ func TestCompilerDynamicContentReEvaluated(t *testing.T) {
 		span.Static("Hello "),
 		span.Text("Alice"),
 	)
-	result1 := string(compiler.Render(tree1))
+	result1 := string(compiler.RenderBytes(tree1))
 
 	// Second render: same structure, different dynamic content. The compiler
 	// reuses the frozen plan but re-evaluates the dynamic path.
@@ -50,7 +50,7 @@ func TestCompilerDynamicContentReEvaluated(t *testing.T) {
 		span.Static("Hello "),
 		span.Text("Bob"),
 	)
-	result2 := string(compiler.Render(tree2))
+	result2 := string(compiler.RenderBytes(tree2))
 
 	if !strings.Contains(result1, "Alice") {
 		t.Errorf("first render should contain dynamic content 'Alice', got %q", result1)
@@ -75,10 +75,12 @@ func TestCompilerRenderToWriter(t *testing.T) {
 
 	tree := div.New(span.Static("hello"))
 	var buf bytes.Buffer
-	result := compiler.Render(tree, &buf)
-
-	if result != nil {
-		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
+	n, err := compiler.WriteTo(tree, &buf)
+	if err != nil {
+		t.Fatalf("WriteTo returned error: %v", err)
+	}
+	if n != int64(buf.Len()) {
+		t.Errorf("WriteTo reported %d bytes but wrote %d", n, buf.Len())
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -98,14 +100,14 @@ func TestCompilerWithConditional(t *testing.T) {
 		span.Static("Status: "),
 		node.When(true, span.Static("active")),
 	)
-	result1 := string(compiler.Render(tree1))
+	result1 := string(compiler.RenderBytes(tree1))
 
 	// Second render: condition is false, "active" should be absent.
 	tree2 := div.New(
 		span.Static("Status: "),
 		node.When(false, span.Static("active")),
 	)
-	result2 := string(compiler.Render(tree2))
+	result2 := string(compiler.RenderBytes(tree2))
 
 	if !strings.Contains(result1, "active") {
 		t.Errorf("conditional with true should render its child, got %q", result1)
@@ -130,8 +132,8 @@ func TestCompilerWithFuncComponent(t *testing.T) {
 		)
 	}
 
-	result1 := string(compiler.Render(makeTree("Alice")))
-	result2 := string(compiler.Render(makeTree("Bob")))
+	result1 := string(compiler.RenderBytes(makeTree("Alice")))
+	result2 := string(compiler.RenderBytes(makeTree("Bob")))
 
 	if !strings.Contains(result1, "Alice") {
 		t.Errorf("first render should evaluate Func closure to 'Alice', got %q", result1)
@@ -151,7 +153,7 @@ func TestCompilerWithFragment(t *testing.T) {
 		span.Static("one"),
 		span.Text("two"),
 	)
-	result := string(compiler.Render(tree))
+	result := string(compiler.RenderBytes(tree))
 
 	if !strings.Contains(result, "one") || !strings.Contains(result, "two") {
 		t.Errorf("fragment should render all children without wrapping tags, got %q", result)
@@ -175,7 +177,7 @@ func TestCompilerWithConfiguration(t *testing.T) {
 	})
 
 	tree := div.Static("hello")
-	result := string(compiler.Render(tree))
+	result := string(compiler.RenderBytes(tree))
 
 	expected := "<div>hello</div>"
 	if result != expected {
@@ -192,7 +194,7 @@ func TestCompilerValidateCompatibleTree(t *testing.T) {
 
 	// Build the plan from a tree with a dynamic child at position [1].
 	original := div.New(span.Static("Hello "), span.Text("Alice"))
-	compiler.Render(original)
+	compiler.RenderBytes(original)
 
 	// Same structure, different dynamic content - should validate fine.
 	compatible := div.New(span.Static("Hello "), span.Text("Bob"))
@@ -211,7 +213,7 @@ func TestCompilerValidateIncompatibleTree(t *testing.T) {
 
 	// Build the plan from a tree with two children.
 	original := div.New(span.Static("Hello "), span.Text("Alice"))
-	compiler.Render(original)
+	compiler.RenderBytes(original)
 
 	// Tree with fewer children - the dynamic path [1] no longer exists.
 	incompatible := div.New(span.Static("Hello "))

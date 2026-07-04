@@ -103,19 +103,43 @@ func NewDiffer() *Differ {
 	}
 }
 
-// Render produces the full HTML for the tree and stores snapshots of all
-// keyed dynamic nodes. Use this for the initial page load and after
-// structural changes detected by Diff.
-//
-// If a writer is provided, the HTML is written to it and nil is returned.
-// If no writer is provided, the HTML is returned as a byte slice.
+// Render writes the full HTML for the tree to w and stores snapshots
+// of all keyed dynamic nodes. Use this for the initial page load and
+// after structural changes detected by Diff. Write errors are
+// discarded - use WriteTo to observe them.
 //
 // The tree renders exactly once: the walk writes the page HTML and
 // captures each keyed region as a byte range of that output. Closures
 // run a single time and snapshots are always byte-identical to the
 // page the client received, even for closures that are not
 // deterministic.
-func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
+func (d *Differ) Render(root node.Node, w io.Writer) {
+	_, _ = d.WriteTo(root, w)
+}
+
+// WriteTo renders the full HTML for the tree to w and stores
+// snapshots, returning the byte count and any write error. This is
+// the render path for network writers, where the error is the signal
+// that the client has gone.
+func (d *Differ) WriteTo(root node.Node, w io.Writer) (int64, error) {
+	page := fluent.NewBuffer()
+	d.seedTracked(root, page)
+	n, err := page.WriteTo(w)
+	fluent.PutBuffer(page)
+	return n, err
+}
+
+// RenderBytes returns the full HTML for the tree as a byte slice and
+// stores snapshots. Use it where no writer is involved.
+func (d *Differ) RenderBytes(root node.Node) []byte {
+	var page bytes.Buffer
+	d.seedTracked(root, &page)
+	return page.Bytes()
+}
+
+// seedTracked resets the differ's state and renders the tree once into
+// page, capturing a snapshot for every keyed region along the way.
+func (d *Differ) seedTracked(root node.Node, page *bytes.Buffer) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -124,18 +148,8 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.snapshots = make(map[string]*bytes.Buffer)
 	d.order = nil
 
-	page := fluent.NewBuffer()
 	renderTracked(root, page, d.snapshots, &d.order)
 	d.seeded = true
-
-	if len(w) > 0 && w[0] != nil {
-		_, _ = page.WriteTo(w[0])
-		fluent.PutBuffer(page)
-		return nil
-	}
-	// The returned bytes escape to the caller, so the page buffer
-	// cannot go back to the pool - the same trade node.Node.Render makes.
-	return page.Bytes()
 }
 
 // trackedKey returns n's Dynamic tracking key, or "" when the node is

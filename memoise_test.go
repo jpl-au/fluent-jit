@@ -27,7 +27,7 @@ func TestMemoiserSkipsUnchangedSubtree(t *testing.T) {
 		)
 	}
 
-	m.Render(tree(1))
+	m.RenderBytes(tree(1))
 	calls = 0
 
 	patches, change := m.Diff(tree(1))
@@ -57,7 +57,7 @@ func TestMemoiserRendersOnKeyChange(t *testing.T) {
 		)
 	}
 
-	m.Render(tree(1, "old"))
+	m.RenderBytes(tree(1, "old"))
 	patches, change := m.Diff(tree(2, "new"))
 
 	if change != nil {
@@ -82,7 +82,7 @@ func TestMemoiserNonMemoAlwaysRenders(t *testing.T) {
 		)
 	}
 
-	m.Render(tree("1"))
+	m.RenderBytes(tree("1"))
 	patches, change := m.Diff(tree("2"))
 
 	if change != nil {
@@ -114,7 +114,7 @@ func TestMemoiserMixedRegions(t *testing.T) {
 		)
 	}
 
-	m.Render(tree(1, "1"))
+	m.RenderBytes(tree(1, "1"))
 	calls = 0
 
 	patches, change := m.Diff(tree(1, "2"))
@@ -149,7 +149,7 @@ func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 		)
 	}
 
-	m1.Render(tree(1))
+	m1.RenderBytes(tree(1))
 	data := m1.Export()
 	if data == nil {
 		t.Fatal("Export should return data")
@@ -177,7 +177,7 @@ func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 func TestMemoiserClear(t *testing.T) {
 	m := NewMemoiser()
 	tree := div.New(span.Text("hello").Dynamic("msg"))
-	m.Render(tree)
+	m.RenderBytes(tree)
 	m.Clear()
 
 	patches, change := m.Diff(tree)
@@ -195,7 +195,7 @@ func TestMemoiserMemoisedCount(t *testing.T) {
 	// No memoise nodes: a plain Dynamic region.
 	plain := NewMemoiser()
 	plainTree := div.New(span.Text("x").Dynamic("a"))
-	plain.Render(plainTree)
+	plain.RenderBytes(plainTree)
 	plain.Diff(plainTree)
 	if n := plain.Memoised(); n != 0 {
 		t.Errorf("plain render: Memoised() = %d, want 0", n)
@@ -206,7 +206,7 @@ func TestMemoiserMemoisedCount(t *testing.T) {
 	memoTree := div.New(
 		div.New(node.Memoise("v1", func() node.Node { return span.Text("x") })).Dynamic("a"),
 	)
-	memo.Render(memoTree)
+	memo.RenderBytes(memoTree)
 	memo.Diff(memoTree)
 	if n := memo.Memoised(); n != 1 {
 		t.Errorf("memoised render: Memoised() = %d, want 1", n)
@@ -234,7 +234,7 @@ func TestMemoiserDetectsStructuralChange(t *testing.T) {
 		span.Text("b").Dynamic("b"),
 	)
 
-	m.Render(tree1)
+	m.RenderBytes(tree1)
 	_, change := m.Diff(tree2)
 
 	if change == nil {
@@ -271,7 +271,7 @@ func TestMemoiserStructuralChangeLeavesStateIntact(t *testing.T) {
 		)
 	}
 
-	m.Render(one())
+	m.RenderBytes(one())
 
 	if _, change := m.Diff(two()); change == nil {
 		t.Fatal("expected a structural change for the added key")
@@ -305,14 +305,14 @@ func TestMemoiserStatsResetByRenderAndClear(t *testing.T) {
 		)
 	}
 
-	m.Render(tree(1))
+	m.RenderBytes(tree(1))
 	m.Diff(tree(1)) // one hit
 
 	if hits, _ := m.Stats(); hits != 1 {
 		t.Fatalf("expected 1 hit from the diff, got %d", hits)
 	}
 
-	m.Render(tree(1))
+	m.RenderBytes(tree(1))
 	if hits, misses := m.Stats(); hits != 0 || misses != 0 {
 		t.Errorf("Stats after Render = (%d, %d), want (0, 0)", hits, misses)
 	}
@@ -340,7 +340,7 @@ func TestMemoiserRenderRunsClosureOnce(t *testing.T) {
 	)
 
 	m := NewMemoiser()
-	html := string(m.Render(tree))
+	html := string(m.RenderBytes(tree))
 
 	if calls != 1 {
 		t.Errorf("memoised closure should run once during Render, ran %d times", calls)

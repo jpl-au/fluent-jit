@@ -22,7 +22,7 @@ child are naturally captured in the parent's rendered output.
 differ := jit.NewDiffer()
 
 // Initial render - stores snapshots of all keyed elements
-html := differ.Render(tree)
+html := differ.RenderBytes(tree)
 
 // After state change
 patches, change := differ.Diff(newTree)
@@ -30,7 +30,7 @@ patches, change := differ.Diff(newTree)
 if change != nil {
     // Structural change - keys were added, removed, or reordered
     // Full re-render is needed
-    html = differ.Render(newTree)
+    html = differ.RenderBytes(newTree)
 } else {
     // Apply targeted patches
     for _, p := range patches {

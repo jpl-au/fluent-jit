@@ -24,8 +24,8 @@ func TestDifferInitialRender(t *testing.T) {
 		span.Text("42").Dynamic("count"),
 	)
 
-	result := string(differ.Render(tree))
-	expected := string(tree.Render())
+	result := string(differ.RenderBytes(tree))
+	expected := string(tree.RenderBytes())
 
 	if result != expected {
 		t.Errorf("initial Render should produce identical output to direct rendering:\n  got  %q\n  want %q", result, expected)
@@ -39,13 +39,15 @@ func TestDifferRenderToWriter(t *testing.T) {
 
 	tree := div.New(span.Text("hello").Dynamic("msg"))
 	var buf bytes.Buffer
-	result := differ.Render(tree, &buf)
-
-	if result != nil {
-		t.Error("Render should return nil when writing to a writer")
+	n, err := differ.WriteTo(tree, &buf)
+	if err != nil {
+		t.Fatalf("WriteTo returned error: %v", err)
+	}
+	if n != int64(buf.Len()) {
+		t.Errorf("WriteTo reported %d bytes but wrote %d", n, buf.Len())
 	}
 	if buf.Len() == 0 {
-		t.Error("Render should write output to the provided writer")
+		t.Error("WriteTo should write output to the provided writer")
 	}
 }
 
@@ -63,7 +65,7 @@ func TestDifferNoPatchesWhenUnchanged(t *testing.T) {
 		)
 	}
 
-	differ.Render(tree())
+	differ.RenderBytes(tree())
 	patches, change := differ.Diff(tree())
 
 	if change != nil {
@@ -88,7 +90,7 @@ func TestDifferDetectsContentChange(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("42"))
+	differ.RenderBytes(makeTree("42"))
 	patches, change := differ.Diff(makeTree("43"))
 
 	if change != nil {
@@ -117,7 +119,7 @@ func TestDifferMultipleChanges(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("Alice", "10"))
+	differ.RenderBytes(makeTree("Alice", "10"))
 	patches, change := differ.Diff(makeTree("Bob", "20"))
 
 	if change != nil {
@@ -154,7 +156,7 @@ func TestDifferPartialChange(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("Alice", "10"))
+	differ.RenderBytes(makeTree("Alice", "10"))
 	// Only count changes, name stays the same
 	patches, change := differ.Diff(makeTree("Alice", "20"))
 
@@ -183,7 +185,7 @@ func TestDifferStructuralChangeKeyAdded(t *testing.T) {
 		p.Text("Help text").Dynamic("help"),
 	)
 
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 	patches, change := differ.Diff(tree2)
 
 	if change == nil {
@@ -214,7 +216,7 @@ func TestDifferStructuralChangeKeyRemoved(t *testing.T) {
 		span.Text("42").Dynamic("count"),
 	)
 
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 	patches, change := differ.Diff(tree2)
 
 	if change == nil {
@@ -247,7 +249,7 @@ func TestDifferStructuralChangeKeyReordered(t *testing.T) {
 		span.Text("Alice").Dynamic("name"),
 	)
 
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 	patches, change := differ.Diff(tree2)
 
 	if change == nil {
@@ -340,7 +342,7 @@ func TestDifferUnkeyedDynamicNotTracked(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("hello"))
+	differ.RenderBytes(makeTree("hello"))
 	patches, change := differ.Diff(makeTree("world"))
 
 	if change != nil {
@@ -360,7 +362,7 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 
 	// Initial render with one key
 	tree1 := div.New(span.Text("42").Dynamic("count"))
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 
 	// Structural change - new key added
 	tree2 := div.New(
@@ -373,7 +375,7 @@ func TestDifferRenderAfterStructuralChange(t *testing.T) {
 	}
 
 	// Re-render to establish new baseline
-	differ.Render(tree2)
+	differ.RenderBytes(tree2)
 
 	// Now Diff should work against the new baseline
 	tree3 := div.New(
@@ -450,7 +452,7 @@ func TestDifferNoKeysNoPatchesNoStructuralChange(t *testing.T) {
 		return div.New(span.Static("hello"))
 	}
 
-	differ.Render(tree())
+	differ.RenderBytes(tree())
 	patches, change := differ.Diff(tree())
 
 	if change != nil {
@@ -473,7 +475,7 @@ func TestDifferWhenTrueExposesKey(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("hello"))
+	differ.RenderBytes(makeTree("hello"))
 	patches, change := differ.Diff(makeTree("world"))
 
 	if change != nil {
@@ -499,7 +501,7 @@ func TestDifferWhenToggledDetectsStructuralChange(t *testing.T) {
 		node.When(false, p.Text("help").Dynamic("help")),
 	)
 
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 	_, change := differ.Diff(tree2)
 
 	if change == nil {
@@ -527,7 +529,7 @@ func TestDifferConditionBothBranches(t *testing.T) {
 			False(span.Text("no").Dynamic("no")),
 	)
 
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 	_, change := differ.Diff(tree2)
 
 	if change == nil {
@@ -548,7 +550,7 @@ func TestDifferFuncExposesKeyedChildren(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree("hello"))
+	differ.RenderBytes(makeTree("hello"))
 	patches, change := differ.Diff(makeTree("world"))
 
 	if change != nil {
@@ -576,7 +578,7 @@ func TestDifferFuncsExposesKeyedChildren(t *testing.T) {
 		)
 	}
 
-	differ.Render(makeTree([]string{"a", "b"}))
+	differ.RenderBytes(makeTree([]string{"a", "b"}))
 	_, change := differ.Diff(makeTree([]string{"a", "b", "c"}))
 
 	if change == nil {
@@ -596,7 +598,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 		span.Text("Alice").Dynamic("name"),
 		span.Text("42").Dynamic("count"),
 	)
-	d1.Render(tree)
+	d1.RenderBytes(tree)
 
 	data := d1.Export()
 	if data == nil {
@@ -632,7 +634,7 @@ func TestExportImportNoChange(t *testing.T) {
 	tree := func() node.Node {
 		return div.New(span.Text("hello").Dynamic("msg"))
 	}
-	d1.Render(tree())
+	d1.RenderBytes(tree())
 
 	data := d1.Export()
 
@@ -675,7 +677,7 @@ func TestImportCorruptData(t *testing.T) {
 func TestClearFreesMemory(t *testing.T) {
 	d := NewDiffer()
 	tree := div.New(span.Text("hello").Dynamic("msg"))
-	d.Render(tree)
+	d.RenderBytes(tree)
 
 	d.Clear()
 
@@ -697,11 +699,11 @@ func TestClearFreesMemory(t *testing.T) {
 func TestClearThenRender(t *testing.T) {
 	d := NewDiffer()
 	tree1 := div.New(span.Text("hello").Dynamic("msg"))
-	d.Render(tree1)
+	d.RenderBytes(tree1)
 	d.Clear()
 
 	tree2 := div.New(span.Text("world").Dynamic("msg"))
-	d.Render(tree2)
+	d.RenderBytes(tree2)
 
 	tree3 := div.New(span.Text("again").Dynamic("msg"))
 	patches, change := d.Diff(tree3)
@@ -722,7 +724,7 @@ func TestExportDoesNotClearState(t *testing.T) {
 	tree := func() node.Node {
 		return div.New(span.Text("hello").Dynamic("msg"))
 	}
-	d.Render(tree())
+	d.RenderBytes(tree())
 
 	_ = d.Export()
 
@@ -741,7 +743,7 @@ func TestExportDoesNotClearState(t *testing.T) {
 // detects structural changes when the new tree has different keys.
 func TestImportStructuralChange(t *testing.T) {
 	d1 := NewDiffer()
-	d1.Render(div.New(span.Text("hello").Dynamic("msg")))
+	d1.RenderBytes(div.New(span.Text("hello").Dynamic("msg")))
 
 	data := d1.Export()
 
@@ -775,14 +777,14 @@ func BenchmarkDifferRender(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		differ.Render(tree)
+		differ.RenderBytes(tree)
 	}
 }
 
 func BenchmarkDifferDiffNoChange(b *testing.B) {
 	tree := buildKeyedTree(50, "v1-")
 	differ := NewDiffer()
-	differ.Render(tree)
+	differ.RenderBytes(tree)
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -794,7 +796,7 @@ func BenchmarkDifferDiffWithChanges(b *testing.B) {
 	tree1 := buildKeyedTree(50, "v1-")
 	tree2 := buildKeyedTree(50, "v2-")
 	differ := NewDiffer()
-	differ.Render(tree1)
+	differ.RenderBytes(tree1)
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -818,7 +820,7 @@ func TestDifferDuplicateKeysDoNotCorruptPool(t *testing.T) {
 		)
 	}
 
-	differ.Render(tree("one"))
+	differ.RenderBytes(tree("one"))
 
 	patches, change := differ.Diff(tree("one"))
 	if change != nil {
@@ -847,18 +849,23 @@ func TestDifferDuplicateKeysDoNotCorruptPool(t *testing.T) {
 // instead of preallocating gigabytes for a corrupt count. Covers both
 // the Differ and the Memoiser, which share the encoding.
 func TestImportRejectsCorruptLengths(t *testing.T) {
+	version := []byte{exportVersion}
+
 	// A count of ~4 billion snapshots with no data behind it.
-	corruptCount := binary.LittleEndian.AppendUint32(nil, 0xFFFFFFFF)
+	corruptCount := binary.LittleEndian.AppendUint32(version, 0xFFFFFFFF)
 
 	// One snapshot whose key claims to be ~4GB long.
-	corruptKey := binary.LittleEndian.AppendUint32(nil, 1)
+	corruptKey := binary.LittleEndian.AppendUint32([]byte{exportVersion}, 1)
 	corruptKey = binary.LittleEndian.AppendUint32(corruptKey, 0xFFFFFFFF)
 
 	// One snapshot with a valid key but a ~4GB value length.
-	corruptVal := binary.LittleEndian.AppendUint32(nil, 1)
+	corruptVal := binary.LittleEndian.AppendUint32([]byte{exportVersion}, 1)
 	corruptVal = binary.LittleEndian.AppendUint32(corruptVal, 1)
 	corruptVal = append(corruptVal, 'k')
 	corruptVal = binary.LittleEndian.AppendUint32(corruptVal, 0xFFFFFFFF)
+
+	// A blob from a future format version must be rejected outright.
+	futureVersion := binary.LittleEndian.AppendUint32([]byte{exportVersion + 1}, 0)
 
 	cases := []struct {
 		name string

@@ -22,7 +22,7 @@ func benchTree(n int) func(int) node.Node {
 func BenchmarkDifferDiff10(b *testing.B) {
 	tree := benchTree(10)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		d.Diff(tree(i))
@@ -32,7 +32,7 @@ func BenchmarkDifferDiff10(b *testing.B) {
 func BenchmarkMemoiserDiff10_NoMemo(b *testing.B) {
 	tree := benchTree(10)
 	m := NewMemoiser()
-	m.Render(tree(0))
+	m.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		m.Diff(tree(i))
@@ -42,7 +42,7 @@ func BenchmarkMemoiserDiff10_NoMemo(b *testing.B) {
 func BenchmarkDifferDiff50(b *testing.B) {
 	tree := benchTree(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		d.Diff(tree(i))
@@ -52,7 +52,7 @@ func BenchmarkDifferDiff50(b *testing.B) {
 func BenchmarkMemoiserDiff50_NoMemo(b *testing.B) {
 	tree := benchTree(50)
 	m := NewMemoiser()
-	m.Render(tree(0))
+	m.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		m.Diff(tree(i))
@@ -82,7 +82,7 @@ func benchMemoTree(n int) func(int, int) node.Node {
 func BenchmarkMemoiserDiff50_WithMemo_AllHit(b *testing.B) {
 	tree := benchMemoTree(50)
 	m := NewMemoiser()
-	m.Render(tree(0, 1))
+	m.RenderBytes(tree(0, 1))
 	b.ResetTimer()
 	for i := range b.N {
 		m.Diff(tree(0, 1)) // same keys - all hits
@@ -138,7 +138,7 @@ func benchExpensiveTree(n int) func(int) node.Node {
 func BenchmarkDifferDiff50_Expensive(b *testing.B) {
 	tree := benchExpensiveTree(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		d.Diff(tree(i))
@@ -148,7 +148,7 @@ func BenchmarkDifferDiff50_Expensive(b *testing.B) {
 func BenchmarkMemoiserDiff50_Expensive_AllHit(b *testing.B) {
 	tree := benchExpensiveMemoTree(50)
 	m := NewMemoiser()
-	m.Render(tree(0, 1))
+	m.RenderBytes(tree(0, 1))
 	b.ResetTimer()
 	for range b.N {
 		m.Diff(tree(0, 1))
@@ -158,7 +158,7 @@ func BenchmarkMemoiserDiff50_Expensive_AllHit(b *testing.B) {
 func BenchmarkMemoiserDiff50_Expensive_OneMiss(b *testing.B) {
 	tree := benchExpensiveMemoTree(50)
 	m := NewMemoiser()
-	m.Render(tree(0, 1))
+	m.RenderBytes(tree(0, 1))
 	b.ResetTimer()
 	for i := range b.N {
 		m.Diff(tree(i, 1))
@@ -168,7 +168,7 @@ func BenchmarkMemoiserDiff50_Expensive_OneMiss(b *testing.B) {
 func BenchmarkMemoiserDiff50_WithMemo_OneMiss(b *testing.B) {
 	tree := benchMemoTree(50)
 	m := NewMemoiser()
-	m.Render(tree(0, 1))
+	m.RenderBytes(tree(0, 1))
 	b.ResetTimer()
 	for i := range b.N {
 		m.Diff(tree(i, 1)) // counter changes, rest hit

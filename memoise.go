@@ -61,9 +61,10 @@ func NewMemoiser() *Memoiser {
 	}
 }
 
-// Render produces the full HTML for the tree and stores snapshots
-// and memoisation keys for all Dynamic regions. Use this for the initial
-// page load and after structural changes detected by Diff.
+// Render writes the full HTML for the tree to w and stores snapshots
+// and memoisation keys for all Dynamic regions. Use this for the
+// initial page load and after structural changes detected by Diff.
+// Write errors are discarded - use WriteTo to observe them.
 //
 // The tree renders exactly once: the walk writes the page HTML and the
 // snapshot for each Dynamic region is the same bytes, so closures run
@@ -71,7 +72,34 @@ func NewMemoiser() *Memoiser {
 // received. A [node.Shared] region whose key is already in the
 // process-global cache does not run its closure at all - the cached
 // bytes serve both the page and the snapshot.
-func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
+func (m *Memoiser) Render(root node.Node, w io.Writer) {
+	_, _ = m.WriteTo(root, w)
+}
+
+// WriteTo renders the full HTML for the tree to w and stores snapshots
+// and memoisation keys, returning the byte count and any write error.
+// This is the render path for network writers, where the error is the
+// signal that the client has gone.
+func (m *Memoiser) WriteTo(root node.Node, w io.Writer) (int64, error) {
+	page := fluent.NewBuffer()
+	m.seedCollect(root, page)
+	n, err := page.WriteTo(w)
+	fluent.PutBuffer(page)
+	return n, err
+}
+
+// RenderBytes returns the full HTML for the tree as a byte slice and
+// stores snapshots and memoisation keys. Use it where no writer is
+// involved.
+func (m *Memoiser) RenderBytes(root node.Node) []byte {
+	var page bytes.Buffer
+	m.seedCollect(root, &page)
+	return page.Bytes()
+}
+
+// seedCollect resets the memoiser's state and renders the tree once
+// into page, capturing snapshots and memoisation keys along the way.
+func (m *Memoiser) seedCollect(root node.Node, page *bytes.Buffer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -86,18 +114,8 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.memoiseKeys = make(map[string]string)
 	m.order = nil
 
-	page := fluent.NewBuffer()
 	m.renderCollect(root, page, "", false)
 	m.seeded = true
-
-	if len(w) > 0 && w[0] != nil {
-		_, _ = page.WriteTo(w[0])
-		fluent.PutBuffer(page)
-		return nil
-	}
-	// The returned bytes escape to the caller, so the page buffer
-	// cannot go back to the pool - the same trade node.Node.Render makes.
-	return page.Bytes()
 }
 
 // Diff compares the new tree against stored snapshots using memoisation

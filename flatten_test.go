@@ -21,7 +21,7 @@ func TestFlattenerStaticContent(t *testing.T) {
 		t.Fatalf("static content should be accepted by the flattener, got error: %v", err)
 	}
 
-	result := string(f.Render())
+	result := string(f.RenderBytes())
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
 		t.Errorf("flattened output should match standard rendering:\n  got  %q\n  want %q", result, expected)
@@ -59,9 +59,9 @@ func TestFlattenerRejectsFuncComponent(t *testing.T) {
 }
 
 // TestFlattenerRenderToWriter verifies the optional io.Writer path. When a
-// writer is provided, the flattener writes its cached bytes directly to it
-// and returns nil. This avoids copying the cached slice when streaming to
-// an HTTP response writer.
+// writer is provided, the flattener writes its cached bytes directly to it.
+// This avoids copying the cached slice when streaming to an HTTP
+// response writer.
 func TestFlattenerRenderToWriter(t *testing.T) {
 	n := div.Static("hello")
 
@@ -71,10 +71,12 @@ func TestFlattenerRenderToWriter(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	result := f.Render(&buf)
-
-	if result != nil {
-		t.Error("Render should return nil when writing to a writer - returning bytes would mean double allocation")
+	n2, err := f.WriteTo(&buf)
+	if err != nil {
+		t.Fatalf("WriteTo returned error: %v", err)
+	}
+	if n2 != int64(buf.Len()) {
+		t.Errorf("WriteTo reported %d bytes but wrote %d", n2, buf.Len())
 	}
 
 	expected := "<div>hello</div>"
@@ -95,8 +97,8 @@ func TestFlattenerRenderConsistency(t *testing.T) {
 		t.Fatalf("static content should be accepted by the flattener, got error: %v", err)
 	}
 
-	first := f.Render()
-	second := f.Render()
+	first := f.RenderBytes()
+	second := f.RenderBytes()
 
 	if !bytes.Equal(first, second) {
 		t.Errorf("cached flattener should return identical bytes on every call:\n  first  %q\n  second %q", first, second)

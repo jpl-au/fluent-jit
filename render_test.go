@@ -82,10 +82,10 @@ func TestRenderMatchesPlainRender(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			want := string(tc.build().Render())
+			want := string(tc.build().RenderBytes())
 
 			d := NewDiffer()
-			if got := string(d.Render(tc.build())); got != want {
+			if got := string(d.RenderBytes(tc.build())); got != want {
 				t.Errorf("Differ.Render diverged from plain Render:\n got  %q\n want %q", got, want)
 			}
 
@@ -104,8 +104,8 @@ func TestRenderMatchesPlainRender(t *testing.T) {
 			// regions, so compare against the same (mutated) tree.
 			ResetSharedCache()
 			tree := tc.build()
-			got := string(NewMemoiser().Render(tree))
-			if want := string(tree.Render()); got != want {
+			got := string(NewMemoiser().RenderBytes(tree))
+			if want := string(tree.RenderBytes()); got != want {
 				t.Errorf("Memoiser.Render diverged from plain Render:\n got  %q\n want %q", got, want)
 			}
 		})
@@ -134,7 +134,7 @@ func TestDifferRenderRunsClosuresOnce(t *testing.T) {
 		).Dynamic("parent"),
 	)
 
-	NewDiffer().Render(tree)
+	NewDiffer().RenderBytes(tree)
 
 	if outer != 1 {
 		t.Errorf("closure in keyed region should run once, ran %d times", outer)
@@ -169,7 +169,7 @@ func TestDifferDiffRunsClosuresOnce(t *testing.T) {
 	}
 
 	d := NewDiffer()
-	d.Render(tree())
+	d.RenderBytes(tree())
 	outer, inner = 0, 0
 
 	patches, change := d.Diff(tree())

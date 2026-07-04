@@ -25,13 +25,13 @@ and content-based comparison is sufficient.
 memoiser := jit.NewMemoiser()
 
 // Initial render
-html := memoiser.Render(tree)
+html := memoiser.RenderBytes(tree)
 
 // After state change
 patches, change := memoiser.Diff(newTree)
 
 if change != nil {
-    html = memoiser.Render(newTree) // structural change - re-render
+    html = memoiser.RenderBytes(newTree) // structural change - re-render
 } else {
     for _, p := range patches {
         // only the changed regions

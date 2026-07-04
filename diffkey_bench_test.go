@@ -34,7 +34,7 @@ func benchExpensiveTreeForKey(n int) func(int) node.Node {
 func BenchmarkDifferDiff50_Expensive_Baseline(b *testing.B) {
 	tree := benchExpensiveTreeForKey(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		d.Diff(tree(i))
@@ -46,7 +46,7 @@ func BenchmarkDifferDiff50_Expensive_Baseline(b *testing.B) {
 func BenchmarkDifferDiffKey_OneOf50(b *testing.B) {
 	tree := benchExpensiveTreeForKey(50)
 	d := NewDiffer()
-	d.Render(tree(0))
+	d.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		subtree := div.New(span.Text("count-" + strconv.Itoa(i))).Dynamic("k0")
@@ -59,7 +59,7 @@ func BenchmarkDifferDiffKey_OneOf50(b *testing.B) {
 func BenchmarkMemoiserDiffKey_OneOf50(b *testing.B) {
 	tree := benchExpensiveTreeForKey(50)
 	m := NewMemoiser()
-	m.Render(tree(0))
+	m.RenderBytes(tree(0))
 	b.ResetTimer()
 	for i := range b.N {
 		subtree := div.New(span.Text("count-" + strconv.Itoa(i))).Dynamic("k0")

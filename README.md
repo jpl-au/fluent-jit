@@ -61,7 +61,7 @@ Adaptive buffer sizing for any content. Learns optimal buffer sizes without comp
 ```go
 // Instance API
 tuner := jit.NewTuner()
-tuner.Tune(myTemplate).Render(w)
+tuner.Render(myTemplate, w)
 
 // Global API
 jit.Tune("user-profile", myTemplate, w)
@@ -98,7 +98,7 @@ Tracks keyed dynamic elements across renders and produces targeted patches for l
 differ := jit.NewDiffer()
 
 // Initial render - stores snapshots of all keyed elements
-html := differ.Render(tree)
+html := differ.RenderBytes(tree)
 
 // After state change - returns only what changed
 patches, change := differ.Diff(newTree)
@@ -106,7 +106,7 @@ patches, change := differ.Diff(newTree)
 if change != nil {
     // Structural change - keys were added, removed, or reordered.
     // change.String() describes what happened, e.g. "key 'sidebar' added"
-    html = differ.Render(newTree)
+    html = differ.RenderBytes(newTree)
 } else {
     for _, p := range patches {
         // p.Key identifies which element, p.HTML is the new content
@@ -178,7 +178,7 @@ and no HTML is produced for that region.
 memoiser := jit.NewMemoiser()
 
 // Initial render - stores snapshots and memoisation keys
-html := memoiser.Render(tree)
+html := memoiser.RenderBytes(tree)
 
 // After state change - skips unchanged subtrees
 patches, change := memoiser.Diff(newTree)

@@ -18,7 +18,7 @@ func TestGlobalCompile(t *testing.T) {
 	defer ResetCompile()
 
 	tree := div.New(span.Static("hello"))
-	result := string(Compile("test-compile", tree))
+	result := string(CompileBytes("test-compile", tree))
 
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
@@ -34,10 +34,12 @@ func TestGlobalCompileToWriter(t *testing.T) {
 
 	tree := div.New(span.Static("hello"))
 	var buf bytes.Buffer
-	result := Compile("test-compile-writer", tree, &buf)
-
-	if result != nil {
-		t.Error("Compile should return nil when writing to a writer - returning bytes would mean double allocation")
+	n, err := CompileWriteTo("test-compile-writer", tree, &buf)
+	if err != nil {
+		t.Fatalf("CompileWriteTo returned error: %v", err)
+	}
+	if n != int64(buf.Len()) {
+		t.Errorf("CompileWriteTo reported %d bytes but wrote %d", n, buf.Len())
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -55,11 +57,11 @@ func TestGlobalCompileReusesInstance(t *testing.T) {
 
 	// First call: creates compiler, builds execution plan, freezes static "Hello ".
 	tree1 := div.New(span.Static("Hello "), span.Text("Alice"))
-	result1 := string(Compile("test-compile-reuse", tree1))
+	result1 := string(CompileBytes("test-compile-reuse", tree1))
 
 	// Second call: same ID reuses the compiler. Dynamic content should update.
 	tree2 := div.New(span.Static("Hello "), span.Text("Bob"))
-	result2 := string(Compile("test-compile-reuse", tree2))
+	result2 := string(CompileBytes("test-compile-reuse", tree2))
 
 	if !strings.Contains(result1, "Alice") {
 		t.Errorf("first render should contain dynamic content 'Alice', got %q", result1)
@@ -76,7 +78,7 @@ func TestGlobalTune(t *testing.T) {
 	defer ResetTune()
 
 	tree := div.New(span.Text("hello"))
-	result := string(Tune("test-tune", tree))
+	result := string(TuneBytes("test-tune", tree))
 
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
@@ -91,7 +93,7 @@ func TestGlobalFlattenStatic(t *testing.T) {
 	defer ResetFlatten()
 
 	tree := div.New(span.Static("hello"))
-	result := string(Flatten("test-flatten", tree))
+	result := string(FlattenBytes("test-flatten", tree))
 
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
@@ -99,7 +101,7 @@ func TestGlobalFlattenStatic(t *testing.T) {
 	}
 
 	// Second call should return the cached bytes - no re-rendering.
-	result2 := string(Flatten("test-flatten", tree))
+	result2 := string(FlattenBytes("test-flatten", tree))
 	if result2 != expected {
 		t.Errorf("cached Flatten result should be identical:\n  got  %q\n  want %q", result2, expected)
 	}
@@ -116,7 +118,7 @@ func TestGlobalFlattenDynamicFallback(t *testing.T) {
 	// span.Text is dynamic - NewFlattener would reject this, but the global
 	// Flatten should fall back to standard rendering and still produce output.
 	tree := div.New(span.Text("hello"))
-	result := string(Flatten("test-flatten-dynamic", tree))
+	result := string(FlattenBytes("test-flatten-dynamic", tree))
 
 	expected := "<div><span>hello</span></div>"
 	if result != expected {
@@ -131,10 +133,12 @@ func TestGlobalFlattenToWriter(t *testing.T) {
 
 	tree := div.New(span.Static("hello"))
 	var buf bytes.Buffer
-	result := Flatten("test-flatten-writer", tree, &buf)
-
-	if result != nil {
-		t.Error("Flatten should return nil when writing to a writer - returning bytes would mean double allocation")
+	n, err := FlattenWriteTo("test-flatten-writer", tree, &buf)
+	if err != nil {
+		t.Fatalf("FlattenWriteTo returned error: %v", err)
+	}
+	if n != int64(buf.Len()) {
+		t.Errorf("FlattenWriteTo reported %d bytes but wrote %d", n, buf.Len())
 	}
 
 	expected := "<div><span>hello</span></div>"
@@ -148,8 +152,8 @@ func TestGlobalFlattenToWriter(t *testing.T) {
 // ensure a clean state between test cases.
 func TestResetCompile(t *testing.T) {
 	tree := div.Static("hello")
-	Compile("reset-a", tree)
-	Compile("reset-b", tree)
+	CompileBytes("reset-a", tree)
+	CompileBytes("reset-b", tree)
 
 	// Reset a specific ID - only "reset-a" should be cleared.
 	ResetCompile("reset-a")
@@ -162,8 +166,8 @@ func TestResetCompile(t *testing.T) {
 // from the global tuner registry.
 func TestResetTune(t *testing.T) {
 	tree := div.Static("hello")
-	Tune("reset-tune-a", tree)
-	Tune("reset-tune-b", tree)
+	TuneBytes("reset-tune-a", tree)
+	TuneBytes("reset-tune-b", tree)
 
 	ResetTune("reset-tune-a")
 	ResetTune()
@@ -173,8 +177,8 @@ func TestResetTune(t *testing.T) {
 // IDs from the global flattener registry.
 func TestResetFlatten(t *testing.T) {
 	tree := div.Static("hello")
-	Flatten("reset-flat-a", tree)
-	Flatten("reset-flat-b", tree)
+	FlattenBytes("reset-flat-a", tree)
+	FlattenBytes("reset-flat-b", tree)
 
 	ResetFlatten("reset-flat-a")
 	ResetFlatten()
@@ -194,7 +198,7 @@ func TestGlobalCompileConfig(t *testing.T) {
 	})
 
 	tree := div.Static("hello")
-	result := string(Compile("test-cfg", tree))
+	result := string(CompileBytes("test-cfg", tree))
 
 	expected := "<div>hello</div>"
 	if result != expected {
@@ -214,7 +218,7 @@ func TestGlobalTuneConfig(t *testing.T) {
 	})
 
 	tree := div.Static("hello")
-	result := string(Tune("test-tune-cfg", tree))
+	result := string(TuneBytes("test-tune-cfg", tree))
 
 	expected := "<div>hello</div>"
 	if result != expected {
@@ -224,9 +228,10 @@ func TestGlobalTuneConfig(t *testing.T) {
 
 // TestGlobalTuneConcurrentCallersGetOwnContent verifies that concurrent
 // calls to the global Tune with the same ID each render their own tree.
-// The previous implementation staged the node on the shared Tuner via
-// Tune(n).Render(), so two requests could swap trees mid-flight and one
-// user's content could be rendered for another.
+// An earlier implementation staged the node on the shared Tuner, so two
+// requests could swap trees mid-flight and one user's content could be
+// rendered for another. The Tuner is stateless now, but the regression
+// test stays.
 func TestGlobalTuneConcurrentCallersGetOwnContent(t *testing.T) {
 	defer ResetTune("concurrent-tune")
 
@@ -239,7 +244,7 @@ func TestGlobalTuneConcurrentCallersGetOwnContent(t *testing.T) {
 			defer wg.Done()
 			marker := "caller-" + strconv.Itoa(id)
 			for range 200 {
-				html := string(Tune("concurrent-tune", div.New(span.Text(marker))))
+				html := string(TuneBytes("concurrent-tune", div.New(span.Text(marker))))
 				if !strings.Contains(html, marker) {
 					mixups <- marker + " received someone else's content: " + html
 					return
