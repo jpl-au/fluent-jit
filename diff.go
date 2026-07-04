@@ -312,6 +312,13 @@ func (d *Differ) Import(data []byte) error {
 		return fmt.Errorf("jit: import: reading snapshot count: %w", err)
 	}
 
+	// Corrupt data must fail with an error, not an enormous allocation.
+	// Each entry needs at least 8 bytes of length prefixes, so a count
+	// the remaining data cannot hold is rejected before preallocating.
+	if int64(count) > int64(r.Len())/8 {
+		return fmt.Errorf("jit: import: snapshot count %d exceeds data size %d", count, r.Len())
+	}
+
 	snapshots := make(map[string]*bytes.Buffer, count)
 	order := make([]string, 0, count)
 
@@ -329,6 +336,12 @@ func (d *Differ) Import(data []byte) error {
 			returnParsed()
 			return fmt.Errorf("jit: import: reading key length: %w", err)
 		}
+		// Reject lengths the remaining data cannot hold before
+		// allocating for them - see the count check above.
+		if int64(keyLen) > int64(r.Len()) {
+			returnParsed()
+			return fmt.Errorf("jit: import: key length %d exceeds remaining data %d", keyLen, r.Len())
+		}
 		keyBytes := make([]byte, keyLen)
 		if _, err := io.ReadFull(r, keyBytes); err != nil {
 			returnParsed()
@@ -340,6 +353,10 @@ func (d *Differ) Import(data []byte) error {
 		if err := binary.Read(r, binary.LittleEndian, &valLen); err != nil {
 			returnParsed()
 			return fmt.Errorf("jit: import: reading value length: %w", err)
+		}
+		if int64(valLen) > int64(r.Len()) {
+			returnParsed()
+			return fmt.Errorf("jit: import: value length %d exceeds remaining data %d", valLen, r.Len())
 		}
 
 		buf := fluent.NewBuffer(int(valLen))

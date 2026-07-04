@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"strings"
 	"testing"
@@ -838,5 +839,42 @@ func TestDifferDuplicateKeysDoNotCorruptPool(t *testing.T) {
 	}
 	if !strings.Contains(string(patches[0].HTML), "two") {
 		t.Errorf("patch should carry the new content, got %q", patches[0].HTML)
+	}
+}
+
+// TestImportRejectsCorruptLengths verifies that Import fails with an
+// error when length prefixes claim more data than the blob holds,
+// instead of preallocating gigabytes for a corrupt count. Covers both
+// the Differ and the Memoiser, which share the encoding.
+func TestImportRejectsCorruptLengths(t *testing.T) {
+	// A count of ~4 billion snapshots with no data behind it.
+	corruptCount := binary.LittleEndian.AppendUint32(nil, 0xFFFFFFFF)
+
+	// One snapshot whose key claims to be ~4GB long.
+	corruptKey := binary.LittleEndian.AppendUint32(nil, 1)
+	corruptKey = binary.LittleEndian.AppendUint32(corruptKey, 0xFFFFFFFF)
+
+	// One snapshot with a valid key but a ~4GB value length.
+	corruptVal := binary.LittleEndian.AppendUint32(nil, 1)
+	corruptVal = binary.LittleEndian.AppendUint32(corruptVal, 1)
+	corruptVal = append(corruptVal, 'k')
+	corruptVal = binary.LittleEndian.AppendUint32(corruptVal, 0xFFFFFFFF)
+
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"corrupt count", corruptCount},
+		{"corrupt key length", corruptKey},
+		{"corrupt value length", corruptVal},
+	}
+
+	for _, tc := range cases {
+		if err := NewDiffer().Import(tc.data); err == nil {
+			t.Errorf("Differ.Import should reject %s", tc.name)
+		}
+		if err := NewMemoiser().Import(tc.data); err == nil {
+			t.Errorf("Memoiser.Import should reject %s", tc.name)
+		}
 	}
 }

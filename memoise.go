@@ -476,6 +476,13 @@ func (m *Memoiser) Import(data []byte) error {
 		return fmt.Errorf("jit: memoiser import: reading snapshot count: %w", err)
 	}
 
+	// Corrupt data must fail with an error, not an enormous allocation.
+	// Each entry needs at least 8 bytes of length prefixes, so a count
+	// the remaining data cannot hold is rejected before preallocating.
+	if int64(count) > int64(r.Len())/8 {
+		return fmt.Errorf("jit: memoiser import: snapshot count %d exceeds data size %d", count, r.Len())
+	}
+
 	snapshots := make(map[string]*bytes.Buffer, count)
 	order := make([]string, 0, count)
 
@@ -491,6 +498,12 @@ func (m *Memoiser) Import(data []byte) error {
 			returnParsed()
 			return fmt.Errorf("jit: memoiser import: reading key length: %w", err)
 		}
+		// Reject lengths the remaining data cannot hold before
+		// allocating for them - see the count check above.
+		if int64(keyLen) > int64(r.Len()) {
+			returnParsed()
+			return fmt.Errorf("jit: memoiser import: key length %d exceeds remaining data %d", keyLen, r.Len())
+		}
 		keyBytes := make([]byte, keyLen)
 		if _, err := io.ReadFull(r, keyBytes); err != nil {
 			returnParsed()
@@ -502,6 +515,10 @@ func (m *Memoiser) Import(data []byte) error {
 		if err := binary.Read(r, binary.LittleEndian, &valLen); err != nil {
 			returnParsed()
 			return fmt.Errorf("jit: memoiser import: reading value length: %w", err)
+		}
+		if int64(valLen) > int64(r.Len()) {
+			returnParsed()
+			return fmt.Errorf("jit: memoiser import: value length %d exceeds remaining data %d", valLen, r.Len())
 		}
 
 		buf := fluent.NewBuffer(int(valLen))
@@ -515,7 +532,11 @@ func (m *Memoiser) Import(data []byte) error {
 		order = append(order, key)
 	}
 
-	// Read memoisation keys if present.
+	// Read memoisation keys if present. This section is tolerant of
+	// truncation for compatibility with exports that predate it - keys
+	// lost here just mean the next Diff treats those regions as misses.
+	// The length checks still apply so corrupt data cannot demand a
+	// huge allocation.
 	memoiseKeys := make(map[string]string)
 	var memoiseCount uint32
 	if err := binary.Read(r, binary.LittleEndian, &memoiseCount); err == nil {
@@ -524,12 +545,18 @@ func (m *Memoiser) Import(data []byte) error {
 			if err := binary.Read(r, binary.LittleEndian, &kLen); err != nil {
 				break
 			}
+			if int64(kLen) > int64(r.Len()) {
+				break
+			}
 			kBytes := make([]byte, kLen)
 			if _, err := io.ReadFull(r, kBytes); err != nil {
 				break
 			}
 			var vLen uint32
 			if err := binary.Read(r, binary.LittleEndian, &vLen); err != nil {
+				break
+			}
+			if int64(vLen) > int64(r.Len()) {
 				break
 			}
 			vBytes := make([]byte, vLen)
