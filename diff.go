@@ -187,26 +187,35 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 }
 
 // describeChange compares the previous and current key orders and
-// returns a StructuralChange describing what happened.
+// returns a StructuralChange describing what happened. Occurrence
+// counts matter: a key appearing more or fewer times than before is
+// reported as added or removed, so a duplicated key reads as "key
+// added" rather than sending the developer hunting for a reorder
+// that never happened.
 func describeChange(prev, current []string) *StructuralChange {
-	prevSet := make(map[string]bool, len(prev))
+	prevCount := make(map[string]int, len(prev))
 	for _, k := range prev {
-		prevSet[k] = true
+		prevCount[k]++
 	}
-	curSet := make(map[string]bool, len(current))
+	curCount := make(map[string]int, len(current))
 	for _, k := range current {
-		curSet[k] = true
+		curCount[k]++
 	}
 
+	// A key cannot be both added and removed, so one reported map
+	// keeps each key to a single mention across both lists.
 	var added, removed []string
+	reported := make(map[string]bool)
 	for _, k := range current {
-		if !prevSet[k] {
+		if !reported[k] && curCount[k] > prevCount[k] {
 			added = append(added, k)
+			reported[k] = true
 		}
 	}
 	for _, k := range prev {
-		if !curSet[k] {
+		if !reported[k] && prevCount[k] > curCount[k] {
 			removed = append(removed, k)
+			reported[k] = true
 		}
 	}
 

@@ -878,3 +878,22 @@ func TestImportRejectsCorruptLengths(t *testing.T) {
 		}
 	}
 }
+
+// TestDescribeChangeReportsDuplicatedKey verifies that a key appearing
+// more times than before is reported as added, not as a reorder. A
+// duplicated key is a developer error, and "keys reordered" would send
+// them hunting for a reorder that never happened.
+func TestDescribeChangeReportsDuplicatedKey(t *testing.T) {
+	change := describeChange([]string{"k"}, []string{"k", "k"})
+	if len(change.Added) != 1 || change.Added[0] != "k" {
+		t.Errorf("duplicated key should be reported as added once, got %v", change.Added)
+	}
+	if change.Reordered {
+		t.Error("duplicated key should not be reported as a reorder")
+	}
+
+	change = describeChange([]string{"k", "k"}, []string{"k"})
+	if len(change.Removed) != 1 || change.Removed[0] != "k" {
+		t.Errorf("deduplicated key should be reported as removed once, got %v", change.Removed)
+	}
+}
