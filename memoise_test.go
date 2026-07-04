@@ -243,3 +243,49 @@ func TestMemoiserDetectsStructuralChange(t *testing.T) {
 		t.Errorf("expected key 'b' added, got %v", change.Added)
 	}
 }
+
+// TestMemoiserStructuralChangeLeavesStateIntact verifies that a Diff
+// reporting a structural change leaves the memoiser's state untouched,
+// matching the Differ. Before this guarantee the structural path adopted
+// the new key order without snapshots behind the added keys, and a
+// subsequent Export dereferenced the missing snapshot and panicked.
+func TestMemoiserStructuralChangeLeavesStateIntact(t *testing.T) {
+	m := NewMemoiser()
+
+	one := func() node.Node {
+		return div.New(
+			div.New(
+				node.Memoise(1, func() node.Node { return span.Text("a") }),
+			).Dynamic("a"),
+		)
+	}
+	two := func() node.Node {
+		return div.New(
+			div.New(
+				node.Memoise(1, func() node.Node { return span.Text("a") }),
+			).Dynamic("a"),
+			div.New(
+				node.Memoise(1, func() node.Node { return span.Text("b") }),
+			).Dynamic("b"),
+		)
+	}
+
+	m.Render(one())
+
+	if _, change := m.Diff(two()); change == nil {
+		t.Fatal("expected a structural change for the added key")
+	}
+
+	if data := m.Export(); data == nil {
+		t.Fatal("Export after a structural diff should return data, not panic or nil")
+	}
+
+	// State was left alone, so the original tree still diffs cleanly.
+	patches, change := m.Diff(one())
+	if change != nil {
+		t.Fatalf("original tree should not report a structural change, got %v", change)
+	}
+	if len(patches) != 0 {
+		t.Errorf("expected no patches for the unchanged original tree, got %d", len(patches))
+	}
+}

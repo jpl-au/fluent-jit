@@ -110,14 +110,16 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	currentOrder := make([]string, 0, len(m.order))
 	m.collectDiff(root, misses, newKeys, &currentOrder, "", false)
 
+	// Structural change: leave all state untouched, matching the
+	// Differ. The caller must Render next, which rebuilds everything.
+	// Adopting the new order here without new snapshots would leave
+	// keys in m.order with no snapshot behind them, and Export would
+	// crash on the gap.
 	if !slices.Equal(m.order, currentOrder) {
 		for _, buf := range misses {
 			fluent.PutBuffer(buf)
 		}
-		change := describeChange(m.order, currentOrder)
-		m.memoiseKeys = newKeys
-		m.order = currentOrder
-		return nil, change
+		return nil, describeChange(m.order, currentOrder)
 	}
 
 	// Compare misses and replace snapshots in a single pass. Hits
