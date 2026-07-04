@@ -47,7 +47,16 @@ func Tune(id string, n node.Node, w ...io.Writer) []byte {
 		val, _ = tuners.LoadOrStore(id, NewTuner())
 	}
 	tuner := val.(*Tuner) //nolint:forcetypeassert // type guaranteed by LoadOrStore
-	return tuner.Tune(n).Render(w...)
+
+	// Render the caller's node directly rather than staging it via
+	// Tune(n).Render(). Staging stores the node on the shared Tuner, so
+	// two concurrent requests using the same ID could swap trees and
+	// render each other's content. Only the sizing statistics are shared.
+	var writer io.Writer
+	if len(w) > 0 {
+		writer = w[0]
+	}
+	return tuner.tune(n, writer)
 }
 
 // ResetCompile removes compiled templates from the global registry,

@@ -62,7 +62,13 @@ func (jt *Tuner) Configure(max int, variance, growthFactor int) *Tuner {
 }
 
 // Tune sets the template to render with adaptive buffer sizing.
-// Thread-safe for concurrent usage. Returns the same instance for method chaining.
+// Returns the same instance for method chaining.
+//
+// The stored node is shared state: if concurrent goroutines each call
+// Tune with their own tree before calling Render, one may render the
+// other's content. Do not stage request-specific data through a shared
+// Tuner - give each concurrent caller its own Tuner, or use the global
+// [Tune] function, which renders the given node directly.
 func (jt *Tuner) Tune(root node.Node) *Tuner {
 	jt.mu.Lock()
 	jt.rootNode = root

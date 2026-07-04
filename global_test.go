@@ -2,7 +2,9 @@ package jit
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -217,5 +219,38 @@ func TestGlobalTuneConfig(t *testing.T) {
 	expected := "<div>hello</div>"
 	if result != expected {
 		t.Errorf("pre-configured Tune should still render correctly:\n  got  %q\n  want %q", result, expected)
+	}
+}
+
+// TestGlobalTuneConcurrentCallersGetOwnContent verifies that concurrent
+// calls to the global Tune with the same ID each render their own tree.
+// The previous implementation staged the node on the shared Tuner via
+// Tune(n).Render(), so two requests could swap trees mid-flight and one
+// user's content could be rendered for another.
+func TestGlobalTuneConcurrentCallersGetOwnContent(t *testing.T) {
+	defer ResetTune("concurrent-tune")
+
+	var wg sync.WaitGroup
+	mixups := make(chan string, 8)
+
+	for i := range 8 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			marker := "caller-" + strconv.Itoa(id)
+			for range 200 {
+				html := string(Tune("concurrent-tune", div.New(span.Text(marker))))
+				if !strings.Contains(html, marker) {
+					mixups <- marker + " received someone else's content: " + html
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(mixups)
+
+	for msg := range mixups {
+		t.Error(msg)
 	}
 }
