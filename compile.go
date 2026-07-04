@@ -197,16 +197,16 @@ func (jc *Compiler) Render(root node.Node, w ...io.Writer) []byte {
 	return buf.Bytes()
 }
 
-// compile builds the execution plan and seeds initial buffer sizing.
-//
-// Step 1: Tree Analysis
+// compile builds the execution plan:
 // - Recursively walk the node tree to identify static vs dynamic content.
 // - Merge adjacent static nodes into single []byte chunks for efficiency.
-// - Store direct references to dynamic nodes.
+// - Record index paths to dynamic nodes for re-evaluation at render time.
 //
-// Step 2: Initial Size Sampling
-// - Execute the compiled plan once to seed buffer size optimisation.
-// - This provides the initial data point for adaptive sizing.
+// No sizing seed render happens here. The first real render updates the
+// sizer itself (shouldUpdateStats always fires with no baseline), and an
+// extra plan execution would run every dynamic closure a second time on
+// the first render - wasted work, and a hazard for closures with side
+// effects.
 func (jc *Compiler) compile(rootNode node.Node) *ExecutionPlan {
 	plan := &ExecutionPlan{}
 	var staticBuffer bytes.Buffer
@@ -223,17 +223,6 @@ func (jc *Compiler) compile(rootNode node.Node) *ExecutionPlan {
 			Content: staticBuffer.Bytes(),
 		})
 	}
-
-	// Execute the plan once to seed adaptive sizing with an actual output size,
-	// so the very first real render already has a reasonable buffer prediction.
-	buf := fluent.NewBuffer()
-	defer fluent.PutBuffer(buf)
-
-	for _, element := range plan.Elements {
-		element.Render(rootNode, buf)
-	}
-
-	jc.sizer.UpdateStats(buf.Len())
 
 	return plan
 }
