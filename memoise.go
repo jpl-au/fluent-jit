@@ -20,15 +20,17 @@ import (
 // When the developer opts into memoisation, every Dynamic region in
 // the render tree should contain a [node.Memoise] child with a cache
 // key. On each Diff call, the Memoiser compares memoisation keys with the
-// previous render. Matching keys skip the subtree entirely - the
-// closure never runs and no HTML is rendered. Mismatched keys call
-// the closure and render the result into a snapshot for comparison.
+// previous render. Matching keys skip the subtree - no HTML is
+// rendered and no comparison runs. With the preferred Dynamic >
+// Memoise nesting the closure never runs either; when a Memoise
+// wraps the Dynamic node instead, the closure still runs to produce
+// the tree during the walk, but its output is not rendered. See
+// docs/memoise.md for both patterns. Mismatched keys call the
+// closure and render the result into a snapshot for comparison.
 //
 // The Memoiser does not fall back to content-based diffing for
 // non-memoised Dynamic nodes. If a Dynamic node has no memoised child, it
-// is always re-rendered (treated as a miss). This keeps the
-// implementation simple and fast - there is no tree walking via
-// Nodes() that would materialise closures.
+// is always re-rendered (treated as a miss).
 type Memoiser struct {
 	mu          sync.Mutex
 	snapshots   map[string]*bytes.Buffer

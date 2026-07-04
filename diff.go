@@ -27,6 +27,12 @@ var SnapshotHint = 128
 // Patch represents a targeted change to a dynamic element in the rendered output.
 // Key matches the value passed to .Dynamic("key") on the element.
 // HTML is the new rendered content for that element.
+//
+// HTML references memory owned by the diff engine's snapshot for the
+// key. It stays valid until the next call that replaces or releases
+// that snapshot (Diff, DiffKey, Render, Import or Clear) - copy the
+// bytes if the patch must outlive that. The usual pattern of sending
+// patches immediately after Diff needs no copy.
 type Patch struct {
 	Key  string
 	HTML []byte
@@ -103,6 +109,12 @@ func NewDiffer() *Differ {
 //
 // If a writer is provided, the HTML is written to it and nil is returned.
 // If no writer is provided, the HTML is returned as a byte slice.
+//
+// Render walks the tree twice: once to snapshot each keyed region and
+// once to produce the page HTML. Closures in the tree therefore run
+// twice and must be deterministic - a closure that returns different
+// bytes each call (a timestamp, a random id) leaves the stored
+// snapshot disagreeing with the page the client received.
 func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
