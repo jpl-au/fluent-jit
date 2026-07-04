@@ -195,3 +195,31 @@ func TestSharedCacheOverwriteKeepsGeneration(t *testing.T) {
 		t.Errorf("new key on a full generation should rotate, prev has %d entries", len(s.prev))
 	}
 }
+
+// TestSharedCacheHitSkipsClosureOnRender verifies that a full Render
+// served by a shared-cache hit does not run the closure at all - the
+// cached bytes serve both the page and the snapshot. The old two-pass
+// design re-ran the closure for the page HTML, negating the shared
+// cache on initial loads.
+func TestSharedCacheHitSkipsClosureOnRender(t *testing.T) {
+	ResetSharedCache()
+
+	var callsA, callsB int
+	a := NewMemoiser()
+	pageA := string(a.Render(sharedTree(1, &callsA)))
+	if callsA != 1 {
+		t.Fatalf("populating session should run the closure once, ran %d times", callsA)
+	}
+
+	b := NewMemoiser()
+	pageB := string(b.Render(sharedTree(1, &callsB)))
+	if callsB != 0 {
+		t.Errorf("cache-hit render should not run the closure, ran %d times", callsB)
+	}
+	if pageB != pageA {
+		t.Errorf("cache-hit page should match the populating session's page:\n A: %s\n B: %s", pageA, pageB)
+	}
+	if hits, misses := b.SharedStats(); hits != 1 || misses != 0 {
+		t.Errorf("seeding shared stats = (%d hit, %d miss), want (1, 0)", hits, misses)
+	}
+}

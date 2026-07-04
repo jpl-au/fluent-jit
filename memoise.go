@@ -65,18 +65,19 @@ func NewMemoiser() *Memoiser {
 // and memoisation keys for all Dynamic regions. Use this for the initial
 // page load and after structural changes detected by Diff.
 //
-// Render walks the tree twice: once to snapshot each Dynamic region
-// and once to produce the page HTML. Closures in the tree therefore
-// run twice and must be deterministic - a closure that returns
-// different bytes each call (a timestamp, a random id) leaves the
-// stored snapshot disagreeing with the page the client received.
+// The tree renders exactly once: the walk writes the page HTML and the
+// snapshot for each Dynamic region is the same bytes, so closures run
+// a single time and snapshots always match the page the client
+// received. A [node.Shared] region whose key is already in the
+// process-global cache does not run its closure at all - the cached
+// bytes serve both the page and the snapshot.
 func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Zero the counters so Stats after a Render does not report a
-	// previous Diff. The shared counters are repopulated by collectAll
-	// below, so SharedStats reflects this seeding pass.
+	// previous Diff. The shared counters are repopulated by
+	// renderCollect below, so SharedStats reflects this seeding pass.
 	m.lastHits, m.lastMisses = 0, 0
 	m.lastSharedHits, m.lastSharedMisses = 0, 0
 
@@ -84,10 +85,19 @@ func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.snapshots = make(map[string]*bytes.Buffer)
 	m.memoiseKeys = make(map[string]string)
 	m.order = nil
-	m.collectAll(root, "", false)
+
+	page := fluent.NewBuffer()
+	m.renderCollect(root, page, "", false)
 	m.seeded = true
 
-	return root.Render(w...)
+	if len(w) > 0 && w[0] != nil {
+		_, _ = page.WriteTo(w[0])
+		fluent.PutBuffer(page)
+		return nil
+	}
+	// The returned bytes escape to the caller, so the page buffer
+	// cannot go back to the pool - the same trade node.Node.Render makes.
+	return page.Bytes()
 }
 
 // Diff compares the new tree against stored snapshots using memoisation
@@ -157,18 +167,24 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 	return patches, nil
 }
 
-// collectAll walks the tree for the initial Render. Every Dynamic
-// node is rendered and its memoisation key (if any) is recorded. This
-// establishes the baseline for subsequent Diff calls.
+// renderCollect walks the tree for the initial Render, writing the
+// page HTML into page exactly once. Every keyed Dynamic region renders
+// into its snapshot buffer and those same bytes are appended to the
+// page, so region content never renders twice. Between regions,
+// elements render decomposed - open tag, children, close tag - which
+// the generated element code guarantees is byte-identical to
+// RenderBuilder; containers without markup of their own contribute
+// their children (closures evaluated once via Nodes()); nodes without
+// children render via RenderBuilder.
 //
 // memoKey carries the stringified key from the nearest ancestor
 // node.Memoiser. When a Dynamic node is reached, this ancestor key
 // is used if no direct child Memoiser is found. This allows both
 // nesting patterns to work:
 //
-//   - Dynamic > Memoise (child key found via findMemoiseKeyStr)
+//   - Dynamic > Memoise (child key found via findMemoise)
 //   - Memoise > Dynamic (ancestor key propagated via memoKey)
-func (m *Memoiser) collectAll(n node.Node, memoKey string, memoShared bool) {
+func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string, memoShared bool) {
 	// Capture memo key from wrapper Memoiser nodes. The key
 	// propagates to any Dynamic descendant that does not have
 	// its own direct Memoiser child.
@@ -202,6 +218,8 @@ func (m *Memoiser) collectAll(n node.Node, memoKey string, memoShared bool) {
 				buf = fluent.NewBuffer(SnapshotHint)
 				n.RenderBuilder(buf)
 			}
+			// The snapshot bytes are also the page bytes.
+			page.Write(buf.Bytes())
 			// A duplicate key is invalid input, but the buffer it
 			// already holds must go back to the pool before being
 			// overwritten or it is lost to the pool entirely.
@@ -216,11 +234,26 @@ func (m *Memoiser) collectAll(n node.Node, memoKey string, memoShared bool) {
 			return
 		}
 	}
-	for _, child := range n.Nodes() {
-		if child != nil {
-			m.collectAll(child, memoKey, memoShared)
+
+	if el, ok := n.(node.Element); ok {
+		el.RenderOpen(page)
+		for _, child := range n.Nodes() {
+			if child != nil {
+				m.renderCollect(child, page, memoKey, memoShared)
+			}
 		}
+		el.RenderClose(page)
+		return
 	}
+	if children := n.Nodes(); len(children) > 0 {
+		for _, child := range children {
+			if child != nil {
+				m.renderCollect(child, page, memoKey, memoShared)
+			}
+		}
+		return
+	}
+	n.RenderBuilder(page)
 }
 
 // collectDiff walks the tree for a Diff call. For each Dynamic node,
@@ -320,10 +353,9 @@ func isSharedMemoiser(memo node.Memoiser) bool {
 // A cache hit skips the closure entirely - the whole point of sharing.
 func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
 	// Mark the live element before the cache lookup, not only on the
-	// miss path. During a full Render the page HTML comes from a later
-	// root.Render over this tree, so a cache hit that skipped the
-	// attribute would serve a page without it while the snapshot (and
-	// every other session) carries it.
+	// miss path. On a hit the cached bytes already carry the attribute,
+	// but the live tree must agree with them in case the caller renders
+	// the same tree again through other means.
 	if el, ok := n.(node.Element); ok {
 		el.SetAttribute("data-tether-memoise", mk)
 	}

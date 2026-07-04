@@ -1,6 +1,7 @@
 package jit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -320,5 +321,31 @@ func TestMemoiserStatsResetByRenderAndClear(t *testing.T) {
 	m.Clear()
 	if hits, misses := m.Stats(); hits != 0 || misses != 0 {
 		t.Errorf("Stats after Clear = (%d, %d), want (0, 0)", hits, misses)
+	}
+}
+
+// TestMemoiserRenderRunsClosureOnce verifies the single-pass guarantee
+// for the seeding Render: the memoised closure runs exactly once, and
+// the same bytes serve as both the page HTML and the snapshot. The old
+// two-pass design ran every closure twice on the initial render.
+func TestMemoiserRenderRunsClosureOnce(t *testing.T) {
+	calls := 0
+	tree := div.New(
+		div.New(
+			node.Memoise(1, func() node.Node {
+				calls++
+				return span.Text("expensive")
+			}),
+		).Dynamic("items"),
+	)
+
+	m := NewMemoiser()
+	html := string(m.Render(tree))
+
+	if calls != 1 {
+		t.Errorf("memoised closure should run once during Render, ran %d times", calls)
+	}
+	if !strings.Contains(html, "expensive") {
+		t.Errorf("page should contain the region content, got %q", html)
 	}
 }
