@@ -91,3 +91,75 @@ func BenchmarkMemoiserRender50_SharedHit(b *testing.B) {
 		NewMemoiser().Render(tree())
 	}
 }
+
+// nestedBenchTree builds n keyed regions each containing a nested
+// keyed child - the shape where the old Diff walk rendered nested
+// content twice (once inside the parent's snapshot, once for its own).
+func nestedBenchTree(n int) func(int) node.Node {
+	return func(count int) node.Node {
+		children := make([]node.Node, n)
+		for i := range n {
+			outer := "outer" + strconv.Itoa(i)
+			inner := "inner" + strconv.Itoa(i)
+			val := i
+			if i == 0 {
+				val = count
+			}
+			children[i] = div.New(
+				span.Static("header"),
+				div.New(
+					span.Text("value "+strconv.Itoa(val)),
+				).Dynamic(inner),
+			).Dynamic(outer)
+		}
+		return div.New(children...)
+	}
+}
+
+// closureBenchTree builds n keyed regions whose content comes from a
+// node.Func closure - the shape where the old Diff walk ran every
+// closure twice (once rendering the snapshot, once materialising
+// Nodes to look for nested keys).
+func closureBenchTree(n int) func(int) node.Node {
+	return func(count int) node.Node {
+		children := make([]node.Node, n)
+		for i := range n {
+			val := i
+			if i == 0 {
+				val = count
+			}
+			children[i] = div.New(
+				node.Func(func() node.Node {
+					rows := make([]node.Node, 10)
+					for j := range 10 {
+						rows[j] = span.Text("row " + strconv.Itoa(val+j))
+					}
+					return div.New(rows...)
+				}),
+			).Dynamic("k" + strconv.Itoa(i))
+		}
+		return div.New(children...)
+	}
+}
+
+func BenchmarkDifferDiff50_Nested(b *testing.B) {
+	tree := nestedBenchTree(50)
+	d := NewDiffer()
+	d.Render(tree(0))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		d.Diff(tree(i))
+	}
+}
+
+func BenchmarkDifferDiff50_Closures(b *testing.B) {
+	tree := closureBenchTree(50)
+	d := NewDiffer()
+	d.Render(tree(0))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		d.Diff(tree(i))
+	}
+}
