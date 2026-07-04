@@ -79,6 +79,7 @@ func (jt *Tuner) Tune(root node.Node) *Tuner {
 // Render executes the configured template with adaptive buffer sizing.
 // This method automatically optimises buffer allocation based on historical render sizes
 // and continuously updates statistics for future optimisation.
+// Returns nil if no template has been set via Tune.
 func (jt *Tuner) Render(w ...io.Writer) []byte {
 	var writer io.Writer
 	if len(w) > 0 {
@@ -99,6 +100,11 @@ func (jt *Tuner) Render(w ...io.Writer) []byte {
 // 3. Feeds the actual size back to the sizer so future predictions improve.
 // 4. The sizer automatically detects pattern changes via variance monitoring.
 func (jt *Tuner) tune(n node.Node, w io.Writer) []byte {
+	// No template set - rendering nothing beats a nil dereference.
+	if n == nil {
+		return nil
+	}
+
 	// With writer: use pooled buffer to avoid allocation, then return it to the pool
 	if w != nil {
 		buf := fluent.NewBuffer(jt.sizer.GetBaseline())

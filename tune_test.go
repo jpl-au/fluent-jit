@@ -112,3 +112,16 @@ func TestTunerWithConfiguration(t *testing.T) {
 		t.Errorf("configured tuner should still render correctly:\n  got  %q\n  want %q", result, expected)
 	}
 }
+
+// TestTunerRenderWithoutTemplate verifies that Render on a tuner that
+// was never given a template returns nil instead of panicking.
+func TestTunerRenderWithoutTemplate(t *testing.T) {
+	if out := NewTuner().Render(); out != nil {
+		t.Errorf("Render without a template should return nil, got %q", out)
+	}
+
+	var buf bytes.Buffer
+	if out := NewTuner().Render(&buf); out != nil || buf.Len() != 0 {
+		t.Error("Render without a template should write nothing")
+	}
+}
