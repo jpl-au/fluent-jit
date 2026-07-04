@@ -62,9 +62,21 @@ func NewMemoiser() *Memoiser {
 // Render produces the full HTML for the tree and stores snapshots
 // and memoisation keys for all Dynamic regions. Use this for the initial
 // page load and after structural changes detected by Diff.
+//
+// Render walks the tree twice: once to snapshot each Dynamic region
+// and once to produce the page HTML. Closures in the tree therefore
+// run twice and must be deterministic - a closure that returns
+// different bytes each call (a timestamp, a random id) leaves the
+// stored snapshot disagreeing with the page the client received.
 func (m *Memoiser) Render(root node.Node, w ...io.Writer) []byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Zero the counters so Stats after a Render does not report a
+	// previous Diff. The shared counters are repopulated by collectAll
+	// below, so SharedStats reflects this seeding pass.
+	m.lastHits, m.lastMisses = 0, 0
+	m.lastSharedHits, m.lastSharedMisses = 0, 0
 
 	m.returnBuffers()
 	m.snapshots = make(map[string]*bytes.Buffer)
@@ -408,12 +420,13 @@ func (m *Memoiser) Memoised() int {
 	return len(m.memoiseKeys)
 }
 
-// SharedStats returns how many memoise misses in the most recent Diff
-// were resolved through the process-global shared cache: hits reused
-// another session's rendered bytes, misses rendered fresh and populated
-// the cache for others. Both counts are a subset of the miss count from
-// [Memoiser.Stats] - a shared region only reaches the cache when its
-// per-session key changed. Call immediately after Diff.
+// SharedStats returns how many shared regions in the most recent Diff
+// (or seeding Render) were resolved through the process-global shared
+// cache: hits reused another session's rendered bytes, misses rendered
+// fresh and populated the cache for others. After a Diff both counts
+// are a subset of the miss count from [Memoiser.Stats] - a shared
+// region only reaches the cache when its per-session key changed.
+// Call immediately after Diff or Render.
 func (m *Memoiser) SharedStats() (hits, misses int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -585,6 +598,8 @@ func (m *Memoiser) Clear() {
 	m.memoiseKeys = make(map[string]string)
 	m.order = nil
 	m.seeded = false
+	m.lastHits, m.lastMisses = 0, 0
+	m.lastSharedHits, m.lastSharedMisses = 0, 0
 }
 
 // Validate checks a tree for duplicate dynamic keys.

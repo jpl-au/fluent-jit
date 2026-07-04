@@ -289,3 +289,36 @@ func TestMemoiserStructuralChangeLeavesStateIntact(t *testing.T) {
 		t.Errorf("expected no patches for the unchanged original tree, got %d", len(patches))
 	}
 }
+
+// TestMemoiserStatsResetByRenderAndClear verifies that Stats after a
+// fresh Render or Clear does not report counts left over from an
+// earlier Diff cycle.
+func TestMemoiserStatsResetByRenderAndClear(t *testing.T) {
+	m := NewMemoiser()
+
+	tree := func(version int) node.Node {
+		return div.New(
+			div.New(
+				node.Memoise(version, func() node.Node { return span.Text("x") }),
+			).Dynamic("items"),
+		)
+	}
+
+	m.Render(tree(1))
+	m.Diff(tree(1)) // one hit
+
+	if hits, _ := m.Stats(); hits != 1 {
+		t.Fatalf("expected 1 hit from the diff, got %d", hits)
+	}
+
+	m.Render(tree(1))
+	if hits, misses := m.Stats(); hits != 0 || misses != 0 {
+		t.Errorf("Stats after Render = (%d, %d), want (0, 0)", hits, misses)
+	}
+
+	m.Diff(tree(2)) // one miss
+	m.Clear()
+	if hits, misses := m.Stats(); hits != 0 || misses != 0 {
+		t.Errorf("Stats after Clear = (%d, %d), want (0, 0)", hits, misses)
+	}
+}
