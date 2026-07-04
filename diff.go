@@ -18,6 +18,11 @@ import (
 // each dynamic element across renders.
 var ErrDuplicateKey = fmt.Errorf("duplicate dynamic key in render tree")
 
+// exportVersion is the first byte of every Export blob. Import rejects
+// data whose version it does not understand, so the encoding can evolve
+// without silently misreading old blobs. Bump it when the layout changes.
+const exportVersion = 1
+
 // SnapshotHint is the initial capacity hint in bytes for snapshot buffers.
 // Most keyed elements render to small HTML fragments, so 128 bytes avoids
 // an early grow in the common case. Adjust if your elements are typically
@@ -397,6 +402,7 @@ func (d *Differ) Export() []byte {
 	}
 
 	var buf bytes.Buffer
+	buf.WriteByte(exportVersion)
 
 	// Write snapshot count, then each key-value pair.
 	binary.Write(&buf, binary.LittleEndian, uint32(len(d.order)))
@@ -419,6 +425,14 @@ func (d *Differ) Import(data []byte) error {
 	defer d.mu.Unlock()
 
 	r := bytes.NewReader(data)
+
+	version, err := r.ReadByte()
+	if err != nil {
+		return fmt.Errorf("jit: import: reading version: %w", err)
+	}
+	if version != exportVersion {
+		return fmt.Errorf("jit: import: unsupported export version %d (want %d)", version, exportVersion)
+	}
 
 	var count uint32
 	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {

@@ -503,6 +503,7 @@ func (m *Memoiser) Export() []byte {
 	}
 
 	var buf bytes.Buffer
+	buf.WriteByte(exportVersion)
 
 	// Snapshots: count, then (keyLen, key, valLen, val) pairs.
 	binary.Write(&buf, binary.LittleEndian, uint32(len(m.order)))
@@ -534,6 +535,14 @@ func (m *Memoiser) Import(data []byte) error {
 	defer m.mu.Unlock()
 
 	r := bytes.NewReader(data)
+
+	version, err := r.ReadByte()
+	if err != nil {
+		return fmt.Errorf("jit: memoiser import: reading version: %w", err)
+	}
+	if version != exportVersion {
+		return fmt.Errorf("jit: memoiser import: unsupported export version %d (want %d)", version, exportVersion)
+	}
 
 	// Read snapshots.
 	var count uint32

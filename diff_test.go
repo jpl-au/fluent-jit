@@ -874,6 +874,7 @@ func TestImportRejectsCorruptLengths(t *testing.T) {
 		{"corrupt count", corruptCount},
 		{"corrupt key length", corruptKey},
 		{"corrupt value length", corruptVal},
+		{"unsupported version", futureVersion},
 	}
 
 	for _, tc := range cases {
