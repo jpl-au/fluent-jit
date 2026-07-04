@@ -20,7 +20,7 @@ func memoBenchTree(n int) node.Node {
 		children = append(children,
 			span.Static("filler between regions"),
 			div.New(
-				node.Memoise(1, func() node.Node {
+				Memoise(1, func() node.Node {
 					items := make([]node.Node, 10)
 					for j := range 10 {
 						items[j] = span.Text("row " + strconv.Itoa(j))
@@ -71,7 +71,7 @@ func BenchmarkMemoiserRender50_SharedHit(b *testing.B) {
 			children = append(children,
 				span.Static("filler between regions"),
 				div.New(
-					node.Shared(key+":v1", func() node.Node {
+					Shared(key+":v1", func() node.Node {
 						items := make([]node.Node, 10)
 						for j := range 10 {
 							items[j] = span.Text("row " + strconv.Itoa(j))

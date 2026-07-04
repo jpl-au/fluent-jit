@@ -330,15 +330,14 @@ func TestDifferDiffBeforeRender(t *testing.T) {
 }
 
 // TestDifferUnkeyedDynamicNotTracked verifies that elements marked with
-// .Dynamic() (no key argument) are not tracked by the diff engine. The "_"
-// sentinel marks the element as dynamic for the JIT compiler but without
-// a tracking key for the diff engine.
+// no .Dynamic call are not tracked by the diff engine - there is no
+// keyless dynamic marker any more, so untracked simply means unkeyed.
 func TestDifferUnkeyedDynamicNotTracked(t *testing.T) {
 	differ := NewDiffer()
 
 	makeTree := func(value string) node.Node {
 		return div.New(
-			span.Text(value).Dynamic(), // no key - uses "_" sentinel
+			span.Text(value), // no key - not tracked
 		)
 	}
 

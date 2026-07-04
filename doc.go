@@ -32,9 +32,10 @@
 //	       the elements whose HTML actually changed.
 //
 //	Yes, but some subtrees are expensive to rebuild -> Memoiser.
-//	       Wraps expensive subtrees in node.Memoise with a cache key.
-//	       When the key matches the previous render, the closure never
-//	       runs. Only changed subtrees produce new HTML for diffing.
+//	       Chain .Memoise(version) on a keyed element, or wrap the
+//	       subtree in [Memoise] to also defer construction. When the
+//	       version matches the previous render, the region is skipped.
+//	       Only changed subtrees produce new HTML for diffing.
 //
 // # Differ vs Memoiser
 //
@@ -51,11 +52,12 @@
 //	html := differ.RenderBytes(buildTree(state))  // initial render
 //	patches, change := differ.Diff(buildTree(newState))  // full re-render + compare
 //
-// The Memoiser is key-based. Each Dynamic region wraps its content in
-// node.Memoise with a cache key (typically a version counter, hash, or
-// timestamp). When the key matches, the closure is skipped entirely -
-// no HTML is produced, no comparison is needed. When the key differs,
-// the closure runs and the result is compared against the snapshot.
+// The Memoiser is version-based. Each Dynamic region carries a cache
+// version - .Memoise(version) chained on the element, or a [Memoise]
+// wrapper (typically a counter, hash, or timestamp). When the version
+// matches, the region is skipped entirely - no HTML is produced, no
+// comparison is needed. When it differs, the region renders and the
+// result is compared against the snapshot.
 //
 //	memoiser := jit.NewMemoiser()
 //	html := memoiser.RenderBytes(buildTree(state)) // initial render

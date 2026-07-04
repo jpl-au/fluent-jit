@@ -16,7 +16,7 @@ import (
 func sharedTree(version int, calls *int) node.Node {
 	return div.New(
 		div.New(
-			node.Shared("nav:v"+strconv.Itoa(version), func() node.Node {
+			Shared("nav:v"+strconv.Itoa(version), func() node.Node {
 				*calls++
 				return span.Text("nav for v" + strconv.Itoa(version))
 			}),
@@ -94,7 +94,7 @@ func TestMemoiseDoesNotShare(t *testing.T) {
 	m := NewMemoiser()
 	m.RenderBytes(div.New(
 		div.New(
-			node.Memoise("v1", func() node.Node { return span.Text("plain") }),
+			Memoise("v1", func() node.Node { return span.Text("plain") }),
 		).Dynamic("nav"),
 	))
 
@@ -111,7 +111,7 @@ func TestSharedCacheKeysDoNotCollide(t *testing.T) {
 	tree := func(key, text string) node.Node {
 		return div.New(
 			div.New(
-				node.Shared(key, func() node.Node { return span.Text(text) }),
+				Shared(key, func() node.Node { return span.Text(text) }),
 			).Dynamic("region"),
 		)
 	}
@@ -153,7 +153,7 @@ func TestSharedCacheBounded(t *testing.T) {
 }
 
 // TestSharedCacheHitStillMarksElement verifies that a full Render served
-// by a shared-cache hit still stamps data-tether-memoise on the live
+// by a shared-cache hit still stamps data-fluent-memoise on the live
 // element. The page HTML comes from a later root.Render over the tree,
 // so skipping the attribute on the hit path would serve a page that
 // disagrees with the stored snapshot and with every other session.
@@ -166,7 +166,7 @@ func TestSharedCacheHitStillMarksElement(t *testing.T) {
 
 	b := NewMemoiser()
 	html := string(b.RenderBytes(sharedTree(1, &callsB)))
-	if !strings.Contains(html, "data-tether-memoise") || !strings.Contains(html, "nav:v1") {
+	if !strings.Contains(html, "data-fluent-memoise") || !strings.Contains(html, "nav:v1") {
 		t.Errorf("cache-hit render should carry the memoise attribute in the page HTML, got:\n%s", html)
 	}
 }

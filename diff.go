@@ -158,12 +158,10 @@ func (d *Differ) seedTracked(root node.Node, page *bytes.Buffer) {
 }
 
 // trackedKey returns n's Dynamic tracking key, or "" when the node is
-// untracked (no key, or the "_" placeholder).
+// untracked.
 func trackedKey(n node.Node) string {
 	if d, ok := n.(node.Dynamic); ok {
-		if k := d.DynamicKey(); k != "" && k != "_" {
-			return k
-		}
+		return d.DynamicKey()
 	}
 	return ""
 }
@@ -559,7 +557,7 @@ func collectTracked(n node.Node, snapshots map[string]*bytes.Buffer, order *[]st
 func validateKeys(n node.Node, seen map[string]bool) error {
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
-		if key != "" && key != "_" {
+		if key != "" {
 			if seen[key] {
 				return fmt.Errorf("%w: %q", ErrDuplicateKey, key)
 			}

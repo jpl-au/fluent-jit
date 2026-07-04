@@ -65,13 +65,13 @@ func benchMemoTree(n int) func(int, int) node.Node {
 		for i := range n {
 			v := version
 			children[i] = div.New(
-				node.Memoise(v, func() node.Node {
+				Memoise(v, func() node.Node {
 					return span.Text("item")
 				}),
 			).Dynamic("k" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
 		}
 		children[0] = div.New(
-			node.Memoise(count, func() node.Node {
+			Memoise(count, func() node.Node {
 				return span.Text(string(rune('0' + count%10)))
 			}),
 		).Dynamic("counter")
@@ -100,7 +100,7 @@ func benchExpensiveMemoTree(n int) func(int, int) node.Node {
 		for i := range n {
 			v := version
 			children[i] = div.New(
-				node.Memoise(v, func() node.Node {
+				Memoise(v, func() node.Node {
 					rows := make([]node.Node, 20)
 					for j := range 20 {
 						rows[j] = div.New(span.Text("cell"), span.Text("data")).Class("row")
@@ -110,7 +110,7 @@ func benchExpensiveMemoTree(n int) func(int, int) node.Node {
 			).Dynamic("k" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
 		}
 		children[0] = div.New(
-			node.Memoise(count, func() node.Node {
+			Memoise(count, func() node.Node {
 				return span.Text(string(rune('0' + count%10)))
 			}),
 		).Dynamic("counter")

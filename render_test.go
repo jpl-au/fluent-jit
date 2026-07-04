@@ -66,7 +66,7 @@ func TestRenderMatchesPlainRender(t *testing.T) {
 		{"memoised region", func() node.Node {
 			return div.New(
 				div.New(
-					node.Memoise(1, func() node.Node { return span.Text("memo") }),
+					Memoise(1, func() node.Node { return span.Text("memo") }),
 				).Dynamic("m"),
 			)
 		}},
@@ -100,7 +100,7 @@ func TestRenderMatchesPlainRender(t *testing.T) {
 				t.Errorf("identical rebuild produced %d phantom patches, first: %q", len(patches), patches[0].HTML)
 			}
 
-			// The Memoiser stamps data-tether-memoise on memoised
+			// The Memoiser stamps data-fluent-memoise on memoised
 			// regions, so compare against the same (mutated) tree.
 			ResetSharedCache()
 			tree := tc.build()

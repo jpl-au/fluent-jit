@@ -160,14 +160,14 @@ func TestMemoiserDiffKey(t *testing.T) {
 
 	tree := div.New(
 		div.New(
-			node.Memoise(1, func() node.Node { return span.Text("old") }),
+			Memoise(1, func() node.Node { return span.Text("old") }),
 		).Dynamic("target"),
 	)
 	m.RenderBytes(tree)
 
 	patch := m.DiffKey("target",
 		div.New(
-			node.Memoise(2, func() node.Node { return span.Text("new") }),
+			Memoise(2, func() node.Node { return span.Text("new") }),
 		).Dynamic("target"),
 	)
 	if patch == nil {

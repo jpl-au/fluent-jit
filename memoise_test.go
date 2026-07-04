@@ -19,7 +19,7 @@ func TestMemoiserSkipsUnchangedSubtree(t *testing.T) {
 	tree := func(version int) node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(version, func() node.Node {
+				Memoise(version, func() node.Node {
 					calls++
 					return span.Text("expensive")
 				}),
@@ -50,7 +50,7 @@ func TestMemoiserRendersOnKeyChange(t *testing.T) {
 	tree := func(version int, text string) node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(version, func() node.Node {
+				Memoise(version, func() node.Node {
 					return span.Text(text)
 				}),
 			).Dynamic("items"),
@@ -105,7 +105,7 @@ func TestMemoiserMixedRegions(t *testing.T) {
 	tree := func(version int, count string) node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(version, func() node.Node {
+				Memoise(version, func() node.Node {
 					calls++
 					return span.Text("static content")
 				}),
@@ -141,7 +141,7 @@ func TestMemoiserExportImportPreservesKeys(t *testing.T) {
 	tree := func(version int) node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(version, func() node.Node {
+				Memoise(version, func() node.Node {
 					calls++
 					return span.Text("expensive")
 				}),
@@ -204,7 +204,7 @@ func TestMemoiserMemoisedCount(t *testing.T) {
 	// One memoised region.
 	memo := NewMemoiser()
 	memoTree := div.New(
-		div.New(node.Memoise("v1", func() node.Node { return span.Text("x") })).Dynamic("a"),
+		div.New(Memoise("v1", func() node.Node { return span.Text("x") })).Dynamic("a"),
 	)
 	memo.RenderBytes(memoTree)
 	memo.Diff(memoTree)
@@ -256,17 +256,17 @@ func TestMemoiserStructuralChangeLeavesStateIntact(t *testing.T) {
 	one := func() node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(1, func() node.Node { return span.Text("a") }),
+				Memoise(1, func() node.Node { return span.Text("a") }),
 			).Dynamic("a"),
 		)
 	}
 	two := func() node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(1, func() node.Node { return span.Text("a") }),
+				Memoise(1, func() node.Node { return span.Text("a") }),
 			).Dynamic("a"),
 			div.New(
-				node.Memoise(1, func() node.Node { return span.Text("b") }),
+				Memoise(1, func() node.Node { return span.Text("b") }),
 			).Dynamic("b"),
 		)
 	}
@@ -300,7 +300,7 @@ func TestMemoiserStatsResetByRenderAndClear(t *testing.T) {
 	tree := func(version int) node.Node {
 		return div.New(
 			div.New(
-				node.Memoise(version, func() node.Node { return span.Text("x") }),
+				Memoise(version, func() node.Node { return span.Text("x") }),
 			).Dynamic("items"),
 		)
 	}
@@ -332,7 +332,7 @@ func TestMemoiserRenderRunsClosureOnce(t *testing.T) {
 	calls := 0
 	tree := div.New(
 		div.New(
-			node.Memoise(1, func() node.Node {
+			Memoise(1, func() node.Node {
 				calls++
 				return span.Text("expensive")
 			}),
@@ -347,5 +347,53 @@ func TestMemoiserRenderRunsClosureOnce(t *testing.T) {
 	}
 	if !strings.Contains(html, "expensive") {
 		t.Errorf("page should contain the region content, got %q", html)
+	}
+}
+
+// TestElementMemoiseSkips verifies the chained element form: a keyed
+// element with .Memoise(version) participates in memoisation without
+// any wrapper node. On a version match the whole region is skipped -
+// closures inside never run - and on a change it renders and patches.
+func TestElementMemoiseSkips(t *testing.T) {
+	m := NewMemoiser()
+
+	calls := 0
+	tree := func(version int, text string) node.Node {
+		return div.New(
+			div.New(
+				node.Func(func() node.Node {
+					calls++
+					return span.Text(text)
+				}),
+			).Dynamic("items").Memoise(version),
+		)
+	}
+
+	html := string(m.RenderBytes(tree(1, "old")))
+	if !strings.Contains(html, `data-fluent-memoise="1"`) {
+		t.Errorf("memoised element should carry the memoise attribute, got %q", html)
+	}
+	calls = 0
+
+	patches, change := m.Diff(tree(1, "old"))
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+	if len(patches) != 0 {
+		t.Errorf("matching version should produce no patches, got %d", len(patches))
+	}
+	if calls != 0 {
+		t.Errorf("matching version should skip the region's closures, ran %d times", calls)
+	}
+
+	patches, change = m.Diff(tree(2, "new"))
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+	if len(patches) != 1 || !strings.Contains(string(patches[0].HTML), "new") {
+		t.Fatalf("changed version should produce one patch with the new content, got %v", patches)
+	}
+	if calls != 1 {
+		t.Errorf("changed version should render the region once, ran %d times", calls)
 	}
 }

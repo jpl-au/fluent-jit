@@ -121,12 +121,12 @@ func (m *Memoiser) seedCollect(root node.Node, page *bytes.Buffer) {
 // Diff compares the new tree against stored snapshots using memoisation
 // keys. For each Dynamic node:
 //
-//   - If its child satisfies [node.Memoiser] and the key matches the
+//   - If it carries a memoisation version (chained .Memoise, or a [Memoise] child) and the version matches the
 //     previous render, the subtree is skipped. No closure is called,
 //     no HTML is rendered. The previous snapshot is reused.
-//   - If the key differs (or there is no memoised child), [node.Memoiser].MemoiseRender
-//     is called (or the node is rendered directly) and the result is
-//     compared against the stored snapshot.
+//   - If the version differs (or the region is not memoised), the
+//     region renders and the result is compared against the stored
+//     snapshot.
 //
 // Returns (patches, nil) when Dynamic keys match between renders.
 // Returns (nil, *StructuralChange) when keys were added, removed,
@@ -195,18 +195,19 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 // their children (closures evaluated once via Nodes()); nodes without
 // children render via RenderBuilder.
 //
-// memoKey carries the stringified key from the nearest ancestor
-// node.Memoiser. When a Dynamic node is reached, this ancestor key
-// is used if no direct child Memoiser is found. This allows both
-// nesting patterns to work:
+// memoKey carries the stringified version from the nearest memoised
+// ancestor. When a Dynamic node is reached, the ancestor version is
+// used if the node carries none of its own. This allows every nesting
+// pattern to work:
 //
-//   - Dynamic > Memoise (child key found via findMemoise)
-//   - Memoise > Dynamic (ancestor key propagated via memoKey)
+//   - element .Dynamic(key).Memoise(version) (found via findMemoise)
+//   - Dynamic > Memoise child (found via findMemoise)
+//   - Memoise > Dynamic (ancestor version propagated via memoKey)
 func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string, memoShared bool) {
-	// Capture memo key from wrapper Memoiser nodes. The key
-	// propagates to any Dynamic descendant that does not have
-	// its own direct Memoiser child.
-	if memo, ok := n.(node.Memoiser); ok {
+	// Capture the memo version from wrapper nodes and memoised
+	// elements. The version propagates to any Dynamic descendant that
+	// does not carry its own.
+	if memo, ok := n.(Memoised); ok {
 		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
 			memoKey = mk
 			memoShared = isSharedMemoiser(memo)
@@ -215,7 +216,7 @@ func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string
 
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
-		if key != "" && key != "_" {
+		if key != "" {
 			// Prefer a direct child Memoiser (Dynamic > Memoise
 			// pattern). Fall back to the ancestor key (Memoise >
 			// Dynamic pattern).
@@ -230,7 +231,7 @@ func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string
 			} else {
 				if mk != "" {
 					if el, ok := n.(node.Element); ok {
-						el.SetAttribute("data-tether-memoise", mk)
+						el.SetAttribute("data-fluent-memoise", mk)
 					}
 				}
 				buf = fluent.NewBuffer(SnapshotHint)
@@ -279,11 +280,11 @@ func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string
 // are skipped entirely - no buffer allocated, no render. Misses are
 // rendered into fresh buffers in the misses map.
 //
-// memoKey carries the stringified key from the nearest ancestor
-// node.Memoiser, matching the propagation in collectAll.
+// memoKey carries the stringified version from the nearest memoised
+// ancestor, matching the propagation in renderCollect.
 func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, keys map[string]string, order *[]string, memoKey string, memoShared bool) {
-	// Capture memo key from wrapper Memoiser nodes.
-	if memo, ok := n.(node.Memoiser); ok {
+	// Capture the memo version from wrapper nodes and memoised elements.
+	if memo, ok := n.(Memoised); ok {
 		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
 			memoKey = mk
 			memoShared = isSharedMemoiser(memo)
@@ -292,7 +293,7 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 
 	if d, ok := n.(node.Dynamic); ok {
 		key := d.DynamicKey()
-		if key != "" && key != "_" {
+		if key != "" {
 			*order = append(*order, key)
 
 			// Prefer direct child Memoiser, fall back to ancestor.
@@ -325,7 +326,7 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 			}
 			if mk != "" {
 				if el, ok := n.(node.Element); ok {
-					el.SetAttribute("data-tether-memoise", mk)
+					el.SetAttribute("data-fluent-memoise", mk)
 				}
 			}
 			buf := fluent.NewBuffer(SnapshotHint)
@@ -341,26 +342,35 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 	}
 }
 
-// findMemoise checks the immediate children of a node for a
-// [node.Memoiser] and returns its key as a string, plus whether that
-// child opts into cross-session sharing ([node.Shared]). The key
-// conversion uses type-switched strconv for common types (zero
-// reflection, zero allocation for string keys). Returns ("", false)
-// if no memoised child is found.
+// findMemoise returns the memoisation version governing a Dynamic
+// node, preferring the node's own chained .Memoise(version) over a
+// [Memoise] child, plus whether the region opts into cross-session
+// sharing. The version conversion uses type-switched strconv for
+// common types (zero reflection, zero allocation for string keys).
+// Returns ("", false) when neither the node nor a child is memoised.
 func findMemoise(n node.Node) (key string, shared bool) {
+	// The element itself may carry the version - every generated
+	// element satisfies Memoised, with a nil version when unset.
+	if memo, ok := n.(Memoised); ok {
+		if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
+			return mk, isSharedMemoiser(memo)
+		}
+	}
 	for _, child := range n.Nodes() {
-		if memo, ok := child.(node.Memoiser); ok {
-			return memoiseKeyToString(memo.MemoiseKey()), isSharedMemoiser(memo)
+		if memo, ok := child.(Memoised); ok {
+			if mk := memoiseKeyToString(memo.MemoiseKey()); mk != "" {
+				return mk, isSharedMemoiser(memo)
+			}
 		}
 	}
 	return "", false
 }
 
 // isSharedMemoiser reports whether a memoised node opts into
-// cross-session sharing. Nodes created with [node.Memoise] do not
-// implement [node.SharedMemoiser] and so are never shared.
-func isSharedMemoiser(memo node.Memoiser) bool {
-	sm, ok := memo.(node.SharedMemoiser)
+// cross-session sharing. Plain [Memoise] nodes and memoised elements
+// do not implement [SharedMemoised] and so are never shared.
+func isSharedMemoiser(memo Memoised) bool {
+	sm, ok := memo.(SharedMemoised)
 	return ok && sm.MemoiseShared()
 }
 
@@ -375,7 +385,7 @@ func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
 	// but the live tree must agree with them in case the caller renders
 	// the same tree again through other means.
 	if el, ok := n.(node.Element); ok {
-		el.SetAttribute("data-tether-memoise", mk)
+		el.SetAttribute("data-fluent-memoise", mk)
 	}
 
 	if cached, ok := sharedCache.get(mk); ok {
@@ -397,6 +407,10 @@ func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
 // cases (string, int, bool) use strconv with no reflection.
 func memoiseKeyToString(v any) string {
 	switch k := v.(type) {
+	case nil:
+		// Every generated element satisfies Memoised; nil is the
+		// "not memoised" default and must never become a version.
+		return ""
 	case string:
 		return k
 	case int:
