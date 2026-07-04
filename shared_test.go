@@ -170,3 +170,28 @@ func TestSharedCacheHitStillMarksElement(t *testing.T) {
 		t.Errorf("cache-hit render should carry the memoise attribute in the page HTML, got:\n%s", html)
 	}
 }
+
+// TestSharedCacheOverwriteKeepsGeneration verifies that overwriting a
+// key already present in a full current generation does not rotate the
+// generations - the map has not grown, so retiring it would evict live
+// entries early.
+func TestSharedCacheOverwriteKeepsGeneration(t *testing.T) {
+	s := newSharedStore(2)
+	s.put("a", []byte("a1"))
+	s.put("b", []byte("b1"))
+
+	// cur is now full. Overwriting a key must update in place.
+	s.put("a", []byte("a2"))
+	if len(s.prev) != 0 {
+		t.Errorf("overwrite should not retire the generation, prev has %d entries", len(s.prev))
+	}
+	if got, _ := s.get("a"); string(got) != "a2" {
+		t.Errorf("overwritten key should return new bytes, got %q", got)
+	}
+
+	// A genuinely new key does rotate.
+	s.put("c", []byte("c1"))
+	if len(s.prev) != 2 {
+		t.Errorf("new key on a full generation should rotate, prev has %d entries", len(s.prev))
+	}
+}

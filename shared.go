@@ -62,7 +62,10 @@ func (s *sharedStore) put(key string, data []byte) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.cur) >= s.cap {
+	// Rotate only when a new key would grow a full generation.
+	// Overwriting an existing key does not grow the map, so retiring
+	// the generation for it would evict live entries early.
+	if _, exists := s.cur[key]; !exists && len(s.cur) >= s.cap {
 		s.prev = s.cur
 		s.cur = make(map[string][]byte, s.cap)
 	}
