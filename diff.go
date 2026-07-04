@@ -125,7 +125,7 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.order = nil
 
 	page := fluent.NewBuffer()
-	d.renderTracked(root, page)
+	renderTracked(root, page, d.snapshots, &d.order)
 	d.seeded = true
 
 	if len(w) > 0 && w[0] != nil {
@@ -138,58 +138,73 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	return page.Bytes()
 }
 
+// trackedKey returns n's Dynamic tracking key, or "" when the node is
+// untracked (no key, or the "_" placeholder).
+func trackedKey(n node.Node) string {
+	if d, ok := n.(node.Dynamic); ok {
+		if k := d.DynamicKey(); k != "" && k != "_" {
+			return k
+		}
+	}
+	return ""
+}
+
 // renderTracked renders n into page exactly once while capturing every
 // keyed Dynamic region as a snapshot copied from the page bytes.
 //
-// Elements render decomposed - open tag, children, close tag - which
-// the generated element code guarantees is byte-identical to
-// RenderBuilder (RenderBuilder is defined as exactly that sequence).
-// Containers without markup of their own (fragments, conditionals,
-// function and memoised nodes) contribute their children, evaluating
-// any closure once via Nodes(). Nodes without children render via
-// RenderBuilder.
-//
-// Keys are recorded in pre-order (parent before children), matching
-// collectSnapshots, and a nested keyed region is captured from the
-// same bytes as its parent - nothing renders twice.
-func (d *Differ) renderTracked(n node.Node, page *bytes.Buffer) {
-	key := ""
-	if dyn, ok := n.(node.Dynamic); ok {
-		if k := dyn.DynamicKey(); k != "" && k != "_" {
-			key = k
-			d.order = append(d.order, key)
-		}
+// Keys are recorded in pre-order (parent before children), and a
+// nested keyed region is captured from the same bytes as its parent -
+// nothing renders twice.
+func renderTracked(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.Buffer, order *[]string) {
+	key := trackedKey(n)
+	if key != "" {
+		*order = append(*order, key)
 	}
 	start := page.Len()
 
-	if el, ok := n.(node.Element); ok {
-		el.RenderOpen(page)
-		for _, child := range n.Nodes() {
-			if child != nil {
-				d.renderTracked(child, page)
-			}
-		}
-		el.RenderClose(page)
-	} else if children := n.Nodes(); len(children) > 0 {
-		for _, child := range children {
-			if child != nil {
-				d.renderTracked(child, page)
-			}
-		}
-	} else {
-		n.RenderBuilder(page)
-	}
+	renderBody(n, page, snapshots, order)
 
 	if key != "" {
 		buf := fluent.NewBuffer(page.Len() - start)
 		buf.Write(page.Bytes()[start:page.Len()])
 		// A duplicate key is invalid input, but the buffer it already
 		// holds must go back to the pool before being overwritten.
-		if prior, ok := d.snapshots[key]; ok {
+		if prior, ok := snapshots[key]; ok {
 			fluent.PutBuffer(prior)
 		}
-		d.snapshots[key] = buf
+		snapshots[key] = buf
 	}
+}
+
+// renderBody writes n's rendered form into page. Elements render
+// decomposed - open tag, children, close tag - which the generated
+// element code guarantees is byte-identical to RenderBuilder
+// (RenderBuilder is defined as exactly that sequence). Containers
+// without markup of their own (fragments, conditionals, function and
+// memoised nodes) contribute their children, evaluating any closure
+// once via Nodes(). Nodes without children render via RenderBuilder.
+// Children recurse through renderTracked so nested keyed regions are
+// captured along the way.
+func renderBody(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.Buffer, order *[]string) {
+	if el, ok := n.(node.Element); ok {
+		el.RenderOpen(page)
+		for _, child := range n.Nodes() {
+			if child != nil {
+				renderTracked(child, page, snapshots, order)
+			}
+		}
+		el.RenderClose(page)
+		return
+	}
+	if children := n.Nodes(); len(children) > 0 {
+		for _, child := range children {
+			if child != nil {
+				renderTracked(child, page, snapshots, order)
+			}
+		}
+		return
+	}
+	n.RenderBuilder(page)
 }
 
 // Diff compares the new tree against stored snapshots and returns
@@ -213,7 +228,7 @@ func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
 
 	current := make(map[string]*bytes.Buffer, len(d.snapshots))
 	currentOrder := make([]string, 0, len(d.order))
-	collectSnapshots(root, current, &currentOrder)
+	collectTracked(root, current, &currentOrder)
 
 	// Structural change - keys were added, removed, or reordered.
 	// Comparing the ordered slices catches all three cases in one check.
@@ -475,42 +490,37 @@ func (d *Differ) Clear() {
 	d.seeded = false
 }
 
-// collectSnapshots walks the tree for Diff and renders each keyed
-// dynamic node into a pooled buffer. Nodes with the key "_" (marked
-// dynamic without a tracking key) are skipped. Render uses
-// renderTracked instead, which also produces the page HTML.
+// collectTracked walks the tree for Diff. Outside keyed regions
+// nothing renders - the walk only descends looking for keys. At a
+// keyed region the subtree renders exactly once into the region's
+// snapshot buffer, with nested keyed regions captured as copies of
+// that buffer's byte ranges. An earlier walk rendered a nested region
+// twice (inside its parent's snapshot and again for its own) and ran
+// closures inside keyed regions twice (once rendering, once
+// materialising Nodes to keep searching for keys).
 //
 // Keys are appended to order in tree-walk order so the caller can
-// detect reordering as a structural change. Unlike an earlier design
-// that treated parent keys as terminal snapshots, the walker always
-// descends into children so that nested Dynamic keys are tracked
-// independently.
-//
-// Tracking every Dynamic key separately is required for sess.Patch:
-// a patch to a child key inside a Dynamic parent must work even when
-// the parent's content as a whole has not changed. Without descending,
-// child keys would be orphaned in the snapshot map (added by DiffKey
-// but never tracked in the order slice), and a subsequent full Diff
-// would silently skip them.
-func collectSnapshots(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
-	if d, ok := n.(node.Dynamic); ok {
-		key := d.DynamicKey()
-		if key != "" && key != "_" {
-			buf := fluent.NewBuffer(SnapshotHint)
-			n.RenderBuilder(buf)
-			// A duplicate key is invalid input, but the buffer it
-			// already holds must go back to the pool before being
-			// overwritten or it is lost to the pool entirely.
-			if prior, ok := snapshots[key]; ok {
-				fluent.PutBuffer(prior)
-			}
-			snapshots[key] = buf
-			*order = append(*order, key)
+// detect reordering as a structural change. Nested Dynamic keys are
+// tracked independently of their parents: a patch to a child key via
+// sess.Patch must work even when the parent's content as a whole has
+// not changed, and a child key absent from the order slice would be
+// silently skipped by subsequent full Diffs.
+func collectTracked(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
+	if key := trackedKey(n); key != "" {
+		*order = append(*order, key)
+		buf := fluent.NewBuffer(SnapshotHint)
+		renderBody(n, buf, snapshots, order)
+		// A duplicate key is invalid input, but the buffer it already
+		// holds must go back to the pool before being overwritten.
+		if prior, ok := snapshots[key]; ok {
+			fluent.PutBuffer(prior)
 		}
+		snapshots[key] = buf
+		return
 	}
 	for _, child := range n.Nodes() {
 		if child != nil {
-			collectSnapshots(child, snapshots, order)
+			collectTracked(child, snapshots, order)
 		}
 	}
 }

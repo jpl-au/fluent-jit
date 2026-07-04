@@ -84,8 +84,20 @@ func TestRenderMatchesPlainRender(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			want := string(tc.build().Render())
 
-			if got := string(NewDiffer().Render(tc.build())); got != want {
+			d := NewDiffer()
+			if got := string(d.Render(tc.build())); got != want {
 				t.Errorf("Differ.Render diverged from plain Render:\n got  %q\n want %q", got, want)
+			}
+
+			// Render and Diff use different walks; their snapshots
+			// must agree byte-for-byte or an identical rebuild would
+			// produce phantom patches.
+			patches, change := d.Diff(tc.build())
+			if change != nil {
+				t.Errorf("identical rebuild reported a structural change: %v", change)
+			}
+			if len(patches) != 0 {
+				t.Errorf("identical rebuild produced %d phantom patches, first: %q", len(patches), patches[0].HTML)
 			}
 
 			// The Memoiser stamps data-tether-memoise on memoised
@@ -129,5 +141,48 @@ func TestDifferRenderRunsClosuresOnce(t *testing.T) {
 	}
 	if inner != 1 {
 		t.Errorf("closure in nested keyed region should run once, ran %d times", inner)
+	}
+}
+
+// TestDifferDiffRunsClosuresOnce verifies the single-render guarantee
+// on the Diff path: each closure inside a keyed region runs exactly
+// once per Diff. The old walk ran a closure twice (once rendering the
+// snapshot, once materialising Nodes to keep searching for keys) and
+// rendered a nested keyed region twice.
+func TestDifferDiffRunsClosuresOnce(t *testing.T) {
+	outer, inner := 0, 0
+	tree := func() node.Node {
+		return div.New(
+			div.New(
+				node.Func(func() node.Node {
+					outer++
+					return span.Text("outer")
+				}),
+				div.New(
+					node.Func(func() node.Node {
+						inner++
+						return span.Text("inner")
+					}),
+				).Dynamic("child"),
+			).Dynamic("parent"),
+		)
+	}
+
+	d := NewDiffer()
+	d.Render(tree())
+	outer, inner = 0, 0
+
+	patches, change := d.Diff(tree())
+	if change != nil {
+		t.Fatalf("unexpected structural change: %v", change)
+	}
+	if len(patches) != 0 {
+		t.Fatalf("identical tree should produce no patches, got %d", len(patches))
+	}
+	if outer != 1 {
+		t.Errorf("closure in keyed region should run once per Diff, ran %d times", outer)
+	}
+	if inner != 1 {
+		t.Errorf("closure in nested keyed region should run once per Diff, ran %d times", inner)
 	}
 }

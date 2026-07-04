@@ -116,6 +116,21 @@
 //     parts of the page can use different strategies. A static nav bar
 //     uses Flatten; the main content area uses Compile.
 //
+// # Custom Node Types
+//
+// The Compiler, Differ and Memoiser render trees by decomposing them:
+// a [node.Element] renders as RenderOpen, then its children, then
+// RenderClose, and any other node either contributes exactly what
+// Nodes() returns or, when it has no children, renders itself via
+// RenderBuilder. Every node type in fluent honours this contract.
+//
+// A custom node type breaks it if RenderBuilder writes wrapper markup
+// of its own while Nodes() also exposes children - the wrapper markup
+// is silently dropped wherever these strategies decompose the tree.
+// Such a type must either implement [node.Element] so the walk can
+// render its opening and closing tags, or return its fully built
+// subtree (wrapper included) from Nodes().
+//
 // # Instance API vs Global API
 //
 // Each strategy has two ways to use it:
