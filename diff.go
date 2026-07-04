@@ -110,11 +110,11 @@ func NewDiffer() *Differ {
 // If a writer is provided, the HTML is written to it and nil is returned.
 // If no writer is provided, the HTML is returned as a byte slice.
 //
-// Render walks the tree twice: once to snapshot each keyed region and
-// once to produce the page HTML. Closures in the tree therefore run
-// twice and must be deterministic - a closure that returns different
-// bytes each call (a timestamp, a random id) leaves the stored
-// snapshot disagreeing with the page the client received.
+// The tree renders exactly once: the walk writes the page HTML and
+// captures each keyed region as a byte range of that output. Closures
+// run a single time and snapshots are always byte-identical to the
+// page the client received, even for closures that are not
+// deterministic.
 func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -123,10 +123,73 @@ func (d *Differ) Render(root node.Node, w ...io.Writer) []byte {
 	d.returnBuffers()
 	d.snapshots = make(map[string]*bytes.Buffer)
 	d.order = nil
-	collectSnapshots(root, d.snapshots, &d.order)
+
+	page := fluent.NewBuffer()
+	d.renderTracked(root, page)
 	d.seeded = true
 
-	return root.Render(w...)
+	if len(w) > 0 && w[0] != nil {
+		_, _ = page.WriteTo(w[0])
+		fluent.PutBuffer(page)
+		return nil
+	}
+	// The returned bytes escape to the caller, so the page buffer
+	// cannot go back to the pool - the same trade node.Node.Render makes.
+	return page.Bytes()
+}
+
+// renderTracked renders n into page exactly once while capturing every
+// keyed Dynamic region as a snapshot copied from the page bytes.
+//
+// Elements render decomposed - open tag, children, close tag - which
+// the generated element code guarantees is byte-identical to
+// RenderBuilder (RenderBuilder is defined as exactly that sequence).
+// Containers without markup of their own (fragments, conditionals,
+// function and memoised nodes) contribute their children, evaluating
+// any closure once via Nodes(). Nodes without children render via
+// RenderBuilder.
+//
+// Keys are recorded in pre-order (parent before children), matching
+// collectSnapshots, and a nested keyed region is captured from the
+// same bytes as its parent - nothing renders twice.
+func (d *Differ) renderTracked(n node.Node, page *bytes.Buffer) {
+	key := ""
+	if dyn, ok := n.(node.Dynamic); ok {
+		if k := dyn.DynamicKey(); k != "" && k != "_" {
+			key = k
+			d.order = append(d.order, key)
+		}
+	}
+	start := page.Len()
+
+	if el, ok := n.(node.Element); ok {
+		el.RenderOpen(page)
+		for _, child := range n.Nodes() {
+			if child != nil {
+				d.renderTracked(child, page)
+			}
+		}
+		el.RenderClose(page)
+	} else if children := n.Nodes(); len(children) > 0 {
+		for _, child := range children {
+			if child != nil {
+				d.renderTracked(child, page)
+			}
+		}
+	} else {
+		n.RenderBuilder(page)
+	}
+
+	if key != "" {
+		buf := fluent.NewBuffer(page.Len() - start)
+		buf.Write(page.Bytes()[start:page.Len()])
+		// A duplicate key is invalid input, but the buffer it already
+		// holds must go back to the pool before being overwritten.
+		if prior, ok := d.snapshots[key]; ok {
+			fluent.PutBuffer(prior)
+		}
+		d.snapshots[key] = buf
+	}
 }
 
 // Diff compares the new tree against stored snapshots and returns
@@ -412,21 +475,16 @@ func (d *Differ) Clear() {
 	d.seeded = false
 }
 
-// collectSnapshots walks the tree depth-first and renders each keyed
+// collectSnapshots walks the tree for Diff and renders each keyed
 // dynamic node into a pooled buffer. Nodes with the key "_" (marked
-// dynamic without a tracking key) are skipped.
+// dynamic without a tracking key) are skipped. Render uses
+// renderTracked instead, which also produces the page HTML.
 //
 // Keys are appended to order in tree-walk order so the caller can
-// detect reordering as a structural change.
-//
-// Once a keyed node is found its children are not searched for further
-// keys. This avoids redundant patches when both a parent and child are
-// keyed - only the outermost key is tracked.
-// collectSnapshots walks the render tree and captures a snapshot for
-// every Dynamic node with a real key (non-empty and not "_"). Unlike
-// an earlier design that treated parent keys as terminal snapshots,
-// the walker always descends into children so that nested Dynamic
-// keys are tracked independently.
+// detect reordering as a structural change. Unlike an earlier design
+// that treated parent keys as terminal snapshots, the walker always
+// descends into children so that nested Dynamic keys are tracked
+// independently.
 //
 // Tracking every Dynamic key separately is required for sess.Patch:
 // a patch to a child key inside a Dynamic parent must work even when
