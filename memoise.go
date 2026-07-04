@@ -305,6 +305,15 @@ func isSharedMemoiser(memo node.Memoiser) bool {
 // becomes the caller's snapshot; the cache keeps its own immutable copy.
 // A cache hit skips the closure entirely - the whole point of sharing.
 func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
+	// Mark the live element before the cache lookup, not only on the
+	// miss path. During a full Render the page HTML comes from a later
+	// root.Render over this tree, so a cache hit that skipped the
+	// attribute would serve a page without it while the snapshot (and
+	// every other session) carries it.
+	if el, ok := n.(node.Element); ok {
+		el.SetAttribute("data-tether-memoise", mk)
+	}
+
 	if cached, ok := sharedCache.get(mk); ok {
 		m.lastSharedHits++
 		buf := fluent.NewBuffer(len(cached))
@@ -313,9 +322,6 @@ func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
 	}
 
 	m.lastSharedMisses++
-	if el, ok := n.(node.Element); ok {
-		el.SetAttribute("data-tether-memoise", mk)
-	}
 	buf := fluent.NewBuffer(SnapshotHint)
 	n.RenderBuilder(buf)
 	sharedCache.put(mk, buf.Bytes())

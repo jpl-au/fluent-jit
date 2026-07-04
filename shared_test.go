@@ -2,6 +2,7 @@ package jit
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -148,5 +149,24 @@ func TestSharedCacheBounded(t *testing.T) {
 
 	if n := SharedCacheLen(); n > 4 {
 		t.Errorf("cache should stay bounded to 2×cap=4, has %d", n)
+	}
+}
+
+// TestSharedCacheHitStillMarksElement verifies that a full Render served
+// by a shared-cache hit still stamps data-tether-memoise on the live
+// element. The page HTML comes from a later root.Render over the tree,
+// so skipping the attribute on the hit path would serve a page that
+// disagrees with the stored snapshot and with every other session.
+func TestSharedCacheHitStillMarksElement(t *testing.T) {
+	ResetSharedCache()
+
+	var callsA, callsB int
+	a := NewMemoiser()
+	a.Render(sharedTree(1, &callsA)) // populates the cache
+
+	b := NewMemoiser()
+	html := string(b.Render(sharedTree(1, &callsB)))
+	if !strings.Contains(html, "data-tether-memoise") || !strings.Contains(html, "nav:v1") {
+		t.Errorf("cache-hit render should carry the memoise attribute in the page HTML, got:\n%s", html)
 	}
 }
