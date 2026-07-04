@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jpl-au/fluent"
 	"github.com/jpl-au/fluent/node"
@@ -63,7 +64,7 @@ type Compiler struct {
 	executionPlan *ExecutionPlan // Built once using sync.Once
 	compileOnce   sync.Once      // Ensures single compilation
 	sizer         *AdaptiveSizer // Shared adaptive buffer sizing
-	threshold     int            // Deviation threshold percentage for conditional updates
+	threshold     int64          // Deviation threshold percentage - atomic, read on every render while Configure may write it
 	cfg           *CompilerCfg   // Optional custom configuration
 }
 
@@ -78,7 +79,7 @@ func NewCompiler(cfg ...*CompilerCfg) *Compiler {
 	// Apply custom config if provided
 	if len(cfg) > 0 && cfg[0] != nil {
 		jc.cfg = cfg[0]
-		jc.threshold = cfg[0].Threshold
+		jc.threshold = int64(cfg[0].Threshold)
 		jc.sizer.Configure(cfg[0].Max, cfg[0].Variance, cfg[0].GrowthFactor)
 	}
 
@@ -94,7 +95,8 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 		Variance:     variance,
 		GrowthFactor: growthFactor,
 	}
-	jc.threshold = threshold
+	// Atomic because renders may be in flight reading the threshold.
+	atomic.StoreInt64(&jc.threshold, int64(threshold))
 	jc.sizer.Configure(max, variance, growthFactor)
 	return jc
 }
@@ -239,7 +241,7 @@ func (jc *Compiler) shouldUpdateStats(predicted, actual int) bool {
 	// Integer math equivalent of: abs(actual - predicted) / predicted > threshold / 100
 	// This avoids floating point on the render path
 	diff := abs(actual - predicted)
-	return diff*100 > predicted*jc.threshold
+	return int64(diff)*100 > int64(predicted)*atomic.LoadInt64(&jc.threshold)
 }
 
 // walk recursively builds the execution plan by separating static and dynamic content.

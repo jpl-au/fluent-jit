@@ -19,13 +19,13 @@ type AdaptiveSizer struct {
 	// Atomic fields - read on every render without locking
 	baseline int64 // current optimal buffer size (atomic)
 	active   int64 // 1 if sampling, 0 if using baseline (atomic)
+	variance int64 // variance threshold percentage, e.g. 20 for 20% (atomic - read by check on every baseline-phase render while Configure may write it)
 
 	// Mutex-protected fields - only accessed during phase transitions
 	mu           sync.Mutex
 	sum          int // running sum during sampling phase
 	count        int // sample count during sampling phase
 	max          int // maximum samples before establishing baseline
-	variance     int // variance threshold percentage (e.g. 20 for 20%)
 	growthFactor int // growth factor percentage (e.g. 115 for 115%)
 }
 
@@ -59,7 +59,7 @@ func (as *AdaptiveSizer) Configure(max int, variance, growthFactor int) {
 	defer as.mu.Unlock()
 
 	as.max = max
-	as.variance = variance
+	atomic.StoreInt64(&as.variance, int64(variance)) // atomic - check may be reading it
 	as.growthFactor = growthFactor
 
 	// Stale statistics from previous configuration would skew the new baseline
@@ -145,7 +145,7 @@ func (as *AdaptiveSizer) check(size int) {
 	// Integer math equivalent of: abs(size - baseline) / baseline > variance / 100
 	// This avoids floating point on the hot path
 	diff := abs(size - baseline)
-	if diff*100 > baseline*as.variance {
+	if int64(diff)*100 > int64(baseline)*atomic.LoadInt64(&as.variance) {
 		// Significant change detected - restart sampling to establish a new baseline
 		as.mu.Lock()
 		as.sum = size // seed new sampling with the value that triggered the change

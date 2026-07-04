@@ -172,3 +172,25 @@ func TestAdaptiveSizerResamplingEstablishesNewBaseline(t *testing.T) {
 		t.Errorf("new baseline should be average (500) * growthFactor (115%%) = 575, got %d", secondBaseline)
 	}
 }
+
+// TestSizerConfigureDuringRenders exercises Configure while another
+// goroutine feeds sizes through UpdateStats and reads GetBaseline.
+// Exists for the race detector: variance is read lock-free on the
+// render path, so Configure must store it atomically.
+func TestSizerConfigureDuringRenders(t *testing.T) {
+	sizer := NewAdaptiveSizer()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 500 {
+			sizer.GetBaseline()
+			sizer.UpdateStats(100 + i%50)
+		}
+	}()
+
+	for range 50 {
+		sizer.Configure(3, 25, 120)
+	}
+	<-done
+}
