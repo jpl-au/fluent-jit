@@ -231,7 +231,7 @@ func (m *Memoiser) renderCollect(n node.Node, page *bytes.Buffer, memoKey string
 			} else {
 				if mk != "" {
 					if el, ok := n.(node.Element); ok {
-						el.SetAttribute("data-fluent-memoise", mk)
+						node.SetData(el, "fluent-memoise", mk)
 					}
 				}
 				buf = fluent.NewBuffer(SnapshotHint)
@@ -326,7 +326,7 @@ func (m *Memoiser) collectDiff(n node.Node, misses map[string]*bytes.Buffer, key
 			}
 			if mk != "" {
 				if el, ok := n.(node.Element); ok {
-					el.SetAttribute("data-fluent-memoise", mk)
+					node.SetData(el, "fluent-memoise", mk)
 				}
 			}
 			buf := fluent.NewBuffer(SnapshotHint)
@@ -385,7 +385,7 @@ func (m *Memoiser) renderShared(n node.Node, mk string) *bytes.Buffer {
 	// but the live tree must agree with them in case the caller renders
 	// the same tree again through other means.
 	if el, ok := n.(node.Element); ok {
-		el.SetAttribute("data-fluent-memoise", mk)
+		node.SetData(el, "fluent-memoise", mk)
 	}
 
 	if cached, ok := sharedCache.get(mk); ok {
