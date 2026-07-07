@@ -108,7 +108,8 @@ func (jc *Compiler) Configure(threshold int, max int, variance, growthFactor int
 // This is a diagnostic tool for tests and development - it should NOT be called
 // in production because it adds overhead to every render. In production, a
 // structure mismatch will produce visibly broken output, which is sufficient
-// signal to investigate.
+// signal to investigate. The walk also evaluates any Func closures, so
+// validate-then-render evaluates closures twice.
 //
 // Returns nil if the tree is compatible, or ErrStructureMismatch with details
 // about which path failed.

@@ -336,6 +336,10 @@ func describeChange(prev, current []string) *StructuralChange {
 // Validate checks a tree for duplicate dynamic keys. Keys must be unique
 // within a tree so the diff engine can track each element unambiguously.
 // Returns nil if all keys are unique.
+//
+// Validate walks the tree, evaluating any Func closures; validate-
+// then-render therefore evaluates closures twice. Intended for
+// startup and tests, not per-request use.
 func (d *Differ) Validate(root node.Node) error {
 	seen := make(map[string]bool)
 	return validateKeys(root, seen)

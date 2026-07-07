@@ -678,6 +678,10 @@ func (m *Memoiser) Clear() {
 }
 
 // Validate checks a tree for duplicate dynamic keys.
+//
+// Validate walks the tree, evaluating any Func closures; validate-
+// then-render therefore evaluates closures twice. Intended for
+// startup and tests, not per-request use.
 func (m *Memoiser) Validate(root node.Node) error {
 	seen := make(map[string]bool)
 	return validateKeys(root, seen)
