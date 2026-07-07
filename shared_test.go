@@ -176,7 +176,7 @@ func TestSharedCacheHitStillMarksElement(t *testing.T) {
 // generations - the map has not grown, so retiring it would evict live
 // entries early.
 func TestSharedCacheOverwriteKeepsGeneration(t *testing.T) {
-	s := newSharedStore(2)
+	s := newSharedStore(2, defaultSharedCacheBudget)
 	s.put("a", []byte("a1"))
 	s.put("b", []byte("b1"))
 
@@ -221,5 +221,90 @@ func TestSharedCacheHitSkipsClosureOnRender(t *testing.T) {
 	}
 	if hits, misses := b.SharedStats(); hits != 1 || misses != 0 {
 		t.Errorf("seeding shared stats = (%d hit, %d miss), want (1, 0)", hits, misses)
+	}
+}
+
+// TestSharedCacheByteBudgetRotates verifies that a generation rotates
+// when the byte budget would be exceeded, even with the entry cap far
+// from full.
+func TestSharedCacheByteBudgetRotates(t *testing.T) {
+	s := newSharedStore(1000, 10)
+	s.put("a", []byte("12345"))
+	s.put("b", []byte("12345"))
+
+	// cur holds exactly 10 bytes. One more byte must rotate.
+	s.put("c", []byte("x"))
+	if len(s.prev) != 2 {
+		t.Errorf("byte budget should rotate the generation, prev has %d entries", len(s.prev))
+	}
+	if s.curBytes != 1 {
+		t.Errorf("fresh generation should hold 1 byte, has %d", s.curBytes)
+	}
+
+	// Entries from the retired generation stay readable.
+	if _, ok := s.get("a"); !ok {
+		t.Error("retired generation should still serve lookups")
+	}
+}
+
+// TestSharedCacheOverwriteAccounting verifies that overwriting a key
+// adjusts the byte total by the size difference, and that an overwrite
+// which grows past the budget rotates - unlike the entry cap, a larger
+// value genuinely grows residency.
+func TestSharedCacheOverwriteAccounting(t *testing.T) {
+	s := newSharedStore(1000, 10)
+	s.put("a", []byte("1234"))
+	s.put("a", []byte("12"))
+	if s.curBytes != 2 {
+		t.Errorf("shrinking overwrite should leave 2 bytes, has %d", s.curBytes)
+	}
+	if len(s.prev) != 0 {
+		t.Errorf("in-budget overwrite should not rotate, prev has %d entries", len(s.prev))
+	}
+
+	s.put("b", []byte("1234567"))   // 9 bytes total
+	s.put("b", []byte("123456789")) // would be 11 - rotates
+	if len(s.prev) != 2 {
+		t.Errorf("overwrite growing past the budget should rotate, prev has %d entries", len(s.prev))
+	}
+	if got, _ := s.get("b"); string(got) != "123456789" {
+		t.Errorf("overwritten key should return new bytes, got %q", got)
+	}
+}
+
+// TestSharedCacheOversizedFragmentStillCaches verifies the documented
+// policy for a fragment larger than the whole budget: it caches (the
+// sharing contract must keep working) but sits alone in its generation
+// and rotates out on the next put.
+func TestSharedCacheOversizedFragmentStillCaches(t *testing.T) {
+	s := newSharedStore(1000, 10)
+	s.put("huge", []byte("this is far larger than ten bytes"))
+	if _, ok := s.get("huge"); !ok {
+		t.Error("oversized fragment should still cache")
+	}
+
+	s.put("small", []byte("x"))
+	if len(s.prev) != 1 {
+		t.Errorf("next put should rotate the oversized generation, prev has %d entries", len(s.prev))
+	}
+}
+
+// TestSetSharedCacheBudget verifies the process-global setter applies
+// the budget and clears the cache, and ignores non-positive values.
+func TestSetSharedCacheBudget(t *testing.T) {
+	t.Cleanup(func() {
+		sharedCache.reset(defaultSharedCacheSize, defaultSharedCacheBudget)
+	})
+
+	SetSharedCacheBudget(10)
+	sharedCache.put("a", []byte("123456"))
+	sharedCache.put("b", []byte("123456"))
+	if len(sharedCache.prev) != 1 {
+		t.Errorf("configured budget should rotate at 10 bytes, prev has %d entries", len(sharedCache.prev))
+	}
+
+	SetSharedCacheBudget(-1)
+	if sharedCache.budget != 10 {
+		t.Errorf("non-positive budget should be ignored, budget is %d", sharedCache.budget)
 	}
 }
