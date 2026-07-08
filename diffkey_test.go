@@ -43,6 +43,50 @@ func TestDiffKeyDetectsChange(t *testing.T) {
 	}
 }
 
+// TestDiffKeyWithSpecialChars verifies a Dynamic key containing characters that
+// node.EscapeAttribute rewrites round-trips through the differ. The key is stored
+// RAW (its diff identity), so the differ matches it across renders, the patch
+// carries the raw key the developer passed, and DiffKey by that same raw key hits
+// the stored snapshot. The key is escaped only where it renders, inside
+// data-fluent-key, so it cannot break out of the attribute.
+func TestDiffKeyWithSpecialChars(t *testing.T) {
+	const raw = `item "1" & <2>`
+	escaped := node.EscapeAttribute(raw)
+	if escaped == raw {
+		t.Fatal("test key must contain escapable characters")
+	}
+
+	makeTree := func(content string) node.Node {
+		return div.New(
+			span.Static("label"),
+			span.Text(content).Dynamic(raw),
+		)
+	}
+
+	d := NewDiffer()
+	d.RenderBytes(makeTree("old"))
+	patches, change := d.Diff(makeTree("new"))
+
+	if change != nil {
+		t.Fatal("raw key should match across renders, not signal a structural change")
+	}
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch for the changed keyed element, got %d", len(patches))
+	}
+	if patches[0].Key != raw {
+		t.Errorf("patch key should be the raw key %q, got %q", raw, patches[0].Key)
+	}
+	// The key renders escaped inside the attribute, so it cannot break out.
+	if !bytes.Contains(patches[0].HTML, []byte(`data-fluent-key="`+escaped+`"`)) {
+		t.Errorf("rendered key should be escaped, got %q", patches[0].HTML)
+	}
+	// DiffKey by the raw key finds the snapshot: no spurious patch for unchanged
+	// content. Escaping the key at storage would have desynced this lookup.
+	if p := d.DiffKey(raw, span.Text("new").Dynamic(raw)); p != nil {
+		t.Errorf("DiffKey by the raw key should match the stored snapshot, got %v", p)
+	}
+}
+
 // TestDiffKeyNoChange verifies that DiffKey returns nil when the
 // content is unchanged.
 func TestDiffKeyNoChange(t *testing.T) {
