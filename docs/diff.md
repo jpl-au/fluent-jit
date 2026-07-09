@@ -7,7 +7,7 @@ standalone for any use case that needs incremental HTML updates.
 ## How it works
 
 1. Mark elements with `.Dynamic("key")` in your Fluent tree
-2. Call `Render()` to capture the initial state (snapshots)
+2. Call `Render(w)` or `RenderBytes()` to capture the initial state (snapshots)
 3. After state changes, call `Diff()` with the new tree
 4. Receive patches for only the elements that changed
 
@@ -73,7 +73,7 @@ Fields on `*StructuralChange`:
 - `Removed` - keys in the old tree not in the new
 - `Reordered` - same keys but different order
 
-After a structural change, call `Render()` to re-establish the
+After a structural change, call `Render(w)` or `RenderBytes()` to re-establish the
 baseline. Patches from `Diff()` are not reliable when keys have
 changed.
 

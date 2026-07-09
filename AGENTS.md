@@ -78,8 +78,8 @@ flattener, err := jit.NewFlattener(staticNode)
 if err != nil {
     // Node contains dynamic content
 }
-output := flattener.Render()
-flattener.Render(w)  // Writes to w, returns nil
+output := flattener.RenderBytes()
+flattener.Render(w)  // Writes to w (fire-and-forget); WriteTo(w) returns (int64, error)
 ```
 
 ### Tuner
@@ -89,7 +89,7 @@ Adaptive buffer sizing without compilation. Learns optimal buffer sizes over rep
 ```go
 // Instance API
 tuner := jit.NewTuner()
-tuner.Tune(node).Render(w)
+tuner.Render(node, w)  // or tuner.RenderBytes(node) for []byte
 
 // With configuration
 tuner := jit.NewTuner(&jit.TunerCfg{
@@ -130,9 +130,9 @@ compiler := jit.NewCompiler(&jit.CompilerCfg{
 // Configuration after creation
 compiler.Configure(threshold, max, variance, growthFactor)
 
-// Render returns []byte if no writer provided
-output := compiler.Render(node)
-compiler.Render(node, w)  // Writes to w, returns nil
+// RenderBytes returns []byte; Render writes to a writer
+output := compiler.RenderBytes(node)
+compiler.Render(node, w)  // Writes to w (fire-and-forget)
 ```
 
 ### Global API
@@ -366,14 +366,14 @@ The Differ tracks rendered output of keyed dynamic nodes across renders and prod
 differ := jit.NewDiffer()
 
 // 1. Initial render - stores snapshots of all keyed elements
-html := differ.Render(tree)
+html := differ.RenderBytes(tree)
 
 // 2. After state change - compare against stored snapshots
 patches, change := differ.Diff(newTree)
 
 // 3. If change is non-nil, keys were added/removed/reordered
 if change != nil {
-    html = differ.Render(newTree)  // Re-render + reset baseline
+    html = differ.RenderBytes(newTree)  // Re-render + reset baseline
     // change.String() → "key 'sidebar' added"
 }
 
