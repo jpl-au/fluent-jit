@@ -62,6 +62,8 @@ div.New(
 
 **There is no `.Attr()` method.** Use `SetAttribute()`, `SetData()`, or `SetAria()` as shown above.
 
+Values passed to the typed methods, `SetAttribute()`, `SetData()`, and `SetAria()` are HTML-escaped at set time, and URL sinks (`href`, `src`, `action`, `formaction`, `<object>` `data`) are scheme-filtered - so untrusted values are safe by default and you should not pre-escape them. For a value you have already sanitised and trust verbatim, `SetAttributeRaw(key, value)` stores it without escaping (the attribute mirror of `RawText`).
+
 ### Configuration Values
 
 Configuration values like `GrowthFactor: 115` and `Variance: 20` are integers representing percentages. This avoids floating point operations on the hot path. A `GrowthFactor` of 115 means 115% (or 1.15x), giving 15% headroom above the average buffer size.
