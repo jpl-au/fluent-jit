@@ -128,7 +128,7 @@ func TestGlobalFlattenNegativeCacheSkipsRewalk(t *testing.T) {
 	calls := 0
 	tree := countingDynamicNode{calls: &calls}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = FlattenBytes("neg-cache", tree)
 	}
 	if calls != 1 {

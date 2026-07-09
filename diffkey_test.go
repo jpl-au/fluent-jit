@@ -218,3 +218,44 @@ func TestMemoiserDiffKey(t *testing.T) {
 		t.Fatal("expected patch for changed key")
 	}
 }
+
+// TestRawAttributeSurvivesJIT verifies a SetAttributeRaw value flows through the
+// compile, flatten and differ paths verbatim. The value is stored raw on the
+// element, so every jit path that snapshots or replays rendered bytes must carry
+// it unchanged; re-escaping it anywhere would corrupt a deliberately pre-escaped
+// value (the same set-time versus render-time seam the raw Dynamic key test above
+// pins for keys).
+func TestRawAttributeSurvivesJIT(t *testing.T) {
+	const raw = `a&amp;b`
+
+	makeTree := func(content string) node.Node {
+		el := span.Text(content)
+		el.SetAttributeRaw("data-raw", raw)
+		return div.New(el.Dynamic("target"))
+	}
+
+	want := makeTree("old").RenderBytes()
+	if !bytes.Contains(want, []byte(`data-raw="`+raw+`"`)) {
+		t.Fatalf("plain render should carry the raw value verbatim, got %q", want)
+	}
+
+	if got := CompileBytes("raw-attr-compile", makeTree("old")); !bytes.Equal(got, want) {
+		t.Errorf("CompileBytes: got %q, want %q", got, want)
+	}
+	if got := FlattenBytes("raw-attr-flatten", makeTree("old")); !bytes.Equal(got, want) {
+		t.Errorf("FlattenBytes: got %q, want %q", got, want)
+	}
+
+	d := NewDiffer()
+	d.RenderBytes(makeTree("old"))
+	patches, change := d.Diff(makeTree("new"))
+	if change != nil {
+		t.Fatal("content change should patch, not signal a structural change")
+	}
+	if len(patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(patches))
+	}
+	if !bytes.Contains(patches[0].HTML, []byte(`data-raw="`+raw+`"`)) {
+		t.Errorf("patch should carry the raw value verbatim, got %q", patches[0].HTML)
+	}
+}
