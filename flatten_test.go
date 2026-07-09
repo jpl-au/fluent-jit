@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/jpl-au/fluent/html5/div"
@@ -102,5 +103,43 @@ func TestFlattenerRenderConsistency(t *testing.T) {
 
 	if !bytes.Equal(first, second) {
 		t.Errorf("cached flattener should return identical bytes on every call:\n  first  %q\n  second %q", first, second)
+	}
+}
+
+// countingDynamicNode is a node that reports itself dynamic and counts how many
+// times isDynamic interrogates it, so a test can prove the global Flatten
+// negative cache stops re-walking a dynamic tree on repeat calls.
+type countingDynamicNode struct{ calls *int }
+
+func (c countingDynamicNode) Render(io.Writer)                 {}
+func (c countingDynamicNode) WriteTo(io.Writer) (int64, error) { return 0, nil }
+func (c countingDynamicNode) RenderBytes() []byte              { return nil }
+func (c countingDynamicNode) RenderBuilder(*bytes.Buffer)      {}
+func (c countingDynamicNode) Nodes() []node.Node               { return nil }
+func (c countingDynamicNode) DynamicKey() string               { return "" }
+func (c countingDynamicNode) IsDynamic() bool                  { *c.calls++; return true }
+
+// TestGlobalFlattenNegativeCacheSkipsRewalk pins the fix: once an id is found
+// dynamic, later calls skip the isDynamic walk entirely, and ResetFlatten
+// clears that memory so the walk runs again.
+func TestGlobalFlattenNegativeCacheSkipsRewalk(t *testing.T) {
+	defer ResetFlatten()
+
+	calls := 0
+	tree := countingDynamicNode{calls: &calls}
+
+	for i := 0; i < 5; i++ {
+		_ = FlattenBytes("neg-cache", tree)
+	}
+	if calls != 1 {
+		t.Errorf("isDynamic should run once then be cached; ran %d times", calls)
+	}
+
+	// Clearing the id must drop the negative-cache entry too, so the next
+	// call re-walks.
+	ResetFlatten("neg-cache")
+	_ = FlattenBytes("neg-cache", tree)
+	if calls != 2 {
+		t.Errorf("ResetFlatten should clear the negative cache; isDynamic ran %d times total", calls)
 	}
 }

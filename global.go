@@ -12,6 +12,13 @@ var (
 	compilers sync.Map
 	tuners    sync.Map
 	flattened sync.Map
+	// flattenDynamic remembers ids whose content was found dynamic, so a
+	// repeat call skips the full isDynamic re-walk and goes straight to the
+	// fallback render. It never affects output - dynamic content is still
+	// rendered fresh every call - so a wrongly-remembered id (one reused for
+	// different content, already outside the stable-id contract the positive
+	// cache assumes) costs a missed cache, never a stale byte.
+	flattenDynamic sync.Map
 )
 
 // compiler returns the registered Compiler for id, creating it on first
@@ -119,7 +126,13 @@ func flattenCached(id string, n node.Node) (b []byte, ok bool) {
 		return val.([]byte), true //nolint:forcetypeassert // type guaranteed by Store below
 	}
 
+	// A previous call already found this id dynamic; skip the re-walk.
+	if _, dynamic := flattenDynamic.Load(id); dynamic {
+		return nil, false
+	}
+
 	if isDynamic(n) {
+		flattenDynamic.Store(id, struct{}{})
 		return nil, false
 	}
 
@@ -168,10 +181,12 @@ func FlattenBytes(id string, n node.Node) []byte {
 func ResetFlatten(ids ...string) {
 	if len(ids) == 0 {
 		flattened.Clear()
+		flattenDynamic.Clear()
 		return
 	}
 	for _, id := range ids {
 		flattened.Delete(id)
+		flattenDynamic.Delete(id)
 	}
 }
 
