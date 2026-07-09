@@ -11,7 +11,7 @@ and content-based comparison is sufficient.
 
 ## How it works
 
-1. Wrap expensive subtrees in `node.Memoise(key, func)` inside a
+1. Wrap expensive subtrees in `jit.Memoise(key, func)` inside a
    `.Dynamic("key")` region
 2. On first render, the closure runs and the output is stored
 3. On subsequent renders, if the memoisation key matches, the closure
@@ -48,7 +48,7 @@ On a cache hit, the closure never executes.
 
 ```go
 div.New(
-    node.Memoise(state.Items.Version(), func() node.Node {
+    jit.Memoise(state.Items.Version(), func() node.Node {
         return renderLargeTable(state.Items.Val)
     }),
 ).Dynamic("items")
@@ -61,7 +61,7 @@ On a cache hit, the snapshot comparison is skipped. The closure still
 executes to produce the tree structure, but no HTML is generated.
 
 ```go
-node.Memoise(state.Items.Version(), func() node.Node {
+jit.Memoise(state.Items.Version(), func() node.Node {
     return itemsTable(state.Items.Val) // returns node with .Dynamic("items")
 })
 ```
@@ -76,7 +76,7 @@ inside a component function.
 func render(state State) node.Node {
     return div.New(
         div.New(
-            node.Memoise(state.Items.Version(), func() node.Node {
+            jit.Memoise(state.Items.Version(), func() node.Node {
                 return renderTable(state.Items.Val)
             }),
         ).Dynamic("items"),
@@ -87,7 +87,7 @@ func render(state State) node.Node {
 }
 ```
 
-Dynamic regions without a `node.Memoise` key (neither as a child nor
+Dynamic regions without a `jit.Memoise` key (neither as a child nor
 as an ancestor) are always re-rendered - treated as a cache miss. The
 Memoiser does not fall back to content-based diffing for non-memoised
 nodes.
@@ -136,7 +136,7 @@ memoiser.Import(data)
 | | Differ | Memoiser |
 |---|---|---|
 | Skips unchanged subtrees | No - always re-renders, compares HTML | Yes - matching keys skip entirely |
-| Requires `node.Memoise` | No | Yes, for each Dynamic region |
+| Requires `jit.Memoise` | No | Yes, for each Dynamic region |
 | Content-based diffing | Yes - compares rendered HTML | Only for misses |
 | DiffKey | Yes | Yes |
 | Export/Import | Yes | Yes (includes memoisation keys) |

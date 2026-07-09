@@ -19,7 +19,7 @@ wrap the render call. Tune learns optimal buffer sizes over repeated
 renders, reducing allocations and GC pressure.
 
 ```go
-import "github.com/jpl-au/fluent-jit/jit"
+import "github.com/jpl-au/fluent-jit"
 
 var tuner = jit.NewTuner()
 
@@ -126,13 +126,13 @@ See [diff.md](diff.md) for the full Differ API.
 ## Step 5: Memoise expensive subtrees
 
 When some parts of your tree are expensive to render and rarely
-change, use `node.Memoise` to skip them entirely:
+change, use `jit.Memoise` to skip them entirely:
 
 ```go
 func render(state State) node.Node {
     return div.New(
         div.New(
-            node.Memoise(state.Items.Version(), func() node.Node {
+            jit.Memoise(state.Items.Version(), func() node.Node {
                 return renderLargeTable(state.Items.Val)
             }),
         ).Dynamic("items"),

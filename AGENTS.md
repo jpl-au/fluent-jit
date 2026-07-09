@@ -307,7 +307,7 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 | Tune | Any | Content with variable sizes, want buffer optimisation only |
 | Compile | Mixed static/dynamic | Templates rendered many times with different data |
 | Differ | Dynamic (keyed) | Live updates via Tether - tracks keyed elements, produces patches |
-| Memoiser | Dynamic (keyed + memoised) | Like Differ but skips unchanged subtrees via `node.Memoise` keys |
+| Memoiser | Dynamic (keyed + memoised) | Like Differ but skips unchanged subtrees via `jit.Memoise` keys |
 
 ## Common Pitfalls
 
@@ -445,7 +445,7 @@ span.Static("hello")                // Static - invisible to the Differ
 ## Memoiser
 
 An alternative to the Differ that skips unchanged subtrees. Each
-Dynamic region wraps its content in `node.Memoise` with a cache key.
+Dynamic region wraps its content in `jit.Memoise` with a cache key.
 When the key matches the previous render, the closure never runs and
 no HTML is produced for that region.
 
@@ -475,7 +475,7 @@ hit, the closure never executes - maximum performance.
 
 ```go
 div.New(
-    node.Memoise(s.Items.Version(), func() node.Node {
+    jit.Memoise(s.Items.Version(), func() node.Node {
         return renderTable(s.Items.Val)
     }),
 ).Dynamic("items")
@@ -488,7 +488,7 @@ On a cache hit, the snapshot comparison is skipped. The closure still
 executes to produce the tree structure, but no HTML is generated.
 
 ```go
-node.Memoise(s.Items.Version(), func() node.Node {
+jit.Memoise(s.Items.Version(), func() node.Node {
     return itemsTable(s.Items.Val) // returns node with .Dynamic("items")
 })
 ```
@@ -503,7 +503,7 @@ set inside a component.
 func render(s State) node.Node {
     return div.New(
         div.New(
-            node.Memoise(s.Items.Version(), func() node.Node {
+            jit.Memoise(s.Items.Version(), func() node.Node {
                 return renderTable(s.Items.Val)
             }),
         ).Dynamic("items"),
@@ -514,7 +514,7 @@ func render(s State) node.Node {
 }
 ```
 
-Dynamic regions without a `node.Memoise` key (neither as a child nor
+Dynamic regions without a `jit.Memoise` key (neither as a child nor
 as an ancestor) are always re-rendered (treated as a miss). The
 Memoiser does not fall back to content-based diffing for non-memoised
 nodes.
@@ -538,7 +538,7 @@ node during the existing tree walk.
 | | Differ | Memoiser |
 |---|---|---|
 | Skips unchanged subtrees | No - always re-renders and compares HTML | Yes - matching memoisation keys skip entirely |
-| Requires `node.Memoise` | No | Yes, for each Dynamic region |
+| Requires `jit.Memoise` | No | Yes, for each Dynamic region |
 | Content-based diffing | Yes - compares rendered HTML | Only for misses |
 | DiffKey | Yes | Yes |
 | Export/Import | Yes | Yes (includes memoisation keys) |

@@ -12,7 +12,7 @@ Just-In-Time optimisation strategies for the [Fluent](https://github.com/jpl-au/
 
 **Diff engine.** Track keyed dynamic elements across renders and produce targeted patches for live updates. Powers [Tether](https://github.com/jpl-au/tether)'s reactive UI but works standalone. Supports full-tree diffs and single-key diffs via `DiffKey`.
 
-**Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. Wraps content in `node.Memoise` with a cache key - when the key matches the previous render, the closure never runs. Use one or the other per session.
+**Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. Wraps content in `jit.Memoise` with a cache key - when the key matches the previous render, the closure never runs. Use one or the other per session.
 
 ## Documentation
 
@@ -170,7 +170,7 @@ if patch != nil {
 ### Memoiser
 
 An alternative to the Differ that skips unchanged subtrees. Each
-Dynamic region wraps its content in `node.Memoise` with a cache key.
+Dynamic region wraps its content in `jit.Memoise` with a cache key.
 When the key matches the previous render, the closure never runs
 and no HTML is produced for that region.
 
@@ -188,11 +188,11 @@ The Memoiser is a standalone engine, not a wrapper around the
 Differ. Use one or the other per session, not both. Both support
 `DiffKey` for targeted single-key diffs.
 
-The render function uses `node.Memoise` to mark skippable regions:
+The render function uses `jit.Memoise` to mark skippable regions:
 
 ```go
 div.New(
-    node.Memoise(version, func() node.Node {
+    jit.Memoise(version, func() node.Node {
         return expensiveRender()
     }),
 ).Dynamic("items")

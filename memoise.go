@@ -14,11 +14,11 @@ import (
 )
 
 // Memoiser provides an alternative to [Differ] for render trees that
-// use [node.Memoise] nodes. It is a standalone concern - use either the
+// use [Memoise] nodes. It is a standalone concern - use either the
 // Differ or the Memoiser, not both on the same session.
 //
 // When the developer opts into memoisation, every Dynamic region in
-// the render tree should contain a [node.Memoise] child with a cache
+// the render tree should contain a [Memoise] child with a cache
 // key. On each Diff call, the Memoiser compares memoisation keys with the
 // previous render. Matching keys skip the subtree - no HTML is
 // rendered and no comparison runs. With the preferred Dynamic >
@@ -69,7 +69,7 @@ func NewMemoiser() *Memoiser {
 // The tree renders exactly once: the walk writes the page HTML and the
 // snapshot for each Dynamic region is the same bytes, so closures run
 // a single time and snapshots always match the page the client
-// received. A [node.Shared] region whose key is already in the
+// received. A [Shared] region whose key is already in the
 // process-global cache does not run its closure at all - the cached
 // bytes serve both the page and the snapshot.
 func (m *Memoiser) Render(root node.Node, w io.Writer) {
@@ -481,7 +481,7 @@ func (m *Memoiser) Stats() (hits, misses int) {
 
 // Memoised reports how many Dynamic regions carried a memoisation key
 // in the most recent Diff. Zero means the render tree used no
-// [node.Memoise] regions at all - the Memoiser is running but has
+// [Memoise] regions at all - the Memoiser is running but has
 // nothing to skip, degrading to plain diff behaviour. Callers use this
 // to detect a Memoise-enabled handler whose render forgot the keys.
 func (m *Memoiser) Memoised() int {
