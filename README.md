@@ -251,9 +251,9 @@ The base Fluent API already performs well with automatic buffer pooling. JIT opt
 2. Profile to identify actual bottlenecks
 3. Apply JIT selectively where it matters
 
-## Profile-Guided Optimization (PGO)
+## Profile-Guided Optimisation (PGO)
 
-Applications using Fluent JIT benefit from [Profile-Guided Optimization](https://go.dev/doc/pgo) (Go 1.21+). PGO uses a CPU profile from your running application to make more aggressive inlining decisions at compile time, improving the JIT compilation, tuning, and flattening paths. Expect **10-20% speed improvements** with no code changes.
+Applications using Fluent JIT benefit from [Profile-Guided Optimisation](https://go.dev/doc/pgo) (Go 1.21+). PGO uses a CPU profile from your running application to make more aggressive inlining decisions at compile time, improving the JIT compilation, tuning, and flattening paths. Expect **10-20% speed improvements** with no code changes.
 
 1. Collect a CPU profile under realistic load:
    ```bash

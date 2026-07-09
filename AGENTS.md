@@ -560,7 +560,7 @@ fluent-jit/
 └── go.mod       # Module definition
 ```
 
-## Profile-Guided Optimization (PGO)
+## Profile-Guided Optimisation (PGO)
 
 Applications using Fluent JIT benefit from [PGO](https://go.dev/doc/pgo) (Go 1.21+). Collect a CPU profile from production, place it as `default.pgo` in the main package, and `go build` applies it automatically. Expect 10-20% speed improvements across compile, tune, and flatten paths with no code changes. Allocations are unaffected - PGO improves inlining decisions only.
 

@@ -11,7 +11,7 @@ import (
 )
 
 // sharedTree builds a render tree whose one Dynamic region is a
-// node.Shared keyed by "nav:vN". calls is incremented every time the
+// Shared keyed by "nav:vN". calls is incremented every time the
 // closure actually runs, so a test can prove the render was skipped.
 func sharedTree(version int, calls *int) node.Node {
 	return div.New(
@@ -86,8 +86,8 @@ func TestSharedCacheStoresRenderedFragment(t *testing.T) {
 	}
 }
 
-// TestMemoiseDoesNotShare confirms a plain node.Memoise never touches
-// the shared cache - only node.Shared opts in.
+// TestMemoiseDoesNotShare confirms a plain Memoise never touches
+// the shared cache - only Shared opts in.
 func TestMemoiseDoesNotShare(t *testing.T) {
 	ResetSharedCache()
 
