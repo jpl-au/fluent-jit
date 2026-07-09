@@ -142,15 +142,15 @@ String-keyed registry using `sync.Map`:
 ```go
 // Flatten (falls back to normal render if dynamic)
 jit.Flatten("id", node, w)
-output := jit.Flatten("id", node)
+output := jit.FlattenBytes("id", node)
 
 // Tune
 jit.Tune("id", node, w)
-output := jit.Tune("id", node)
+output := jit.TuneBytes("id", node)
 
 // Compile
 jit.Compile("id", node, w)
-output := jit.Compile("id", node)
+output := jit.CompileBytes("id", node)
 
 // Pre-configure before first use
 jit.TuneConfig("id", jit.TunerCfg{...})
