@@ -44,13 +44,13 @@ Elements are marked for tracking with `.Dynamic("key")`:
 
 ```go
 span.Text(count).Dynamic("count")   // tracked by the Differ
-span.Text(value).Dynamic()          // JIT-dynamic but not diff-tracked
+span.Text(value).Dynamic("")        // empty key - JIT-dynamic but not diff-tracked
 span.Static("hello")                // static - invisible to the Differ
 ```
 
-Calling `.Dynamic()` without a key (or with an empty string) marks the
-element as dynamic for JIT purposes but does not register it with the
-Differ. Only named keys produce patches.
+Passing an empty-string key (`.Dynamic("")`) marks the element as
+dynamic for JIT purposes but does not register it with the Differ. A key
+is required; only a non-empty key produces patches.
 
 ## Structural changes
 

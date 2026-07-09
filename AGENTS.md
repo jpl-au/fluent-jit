@@ -438,7 +438,7 @@ Elements are marked dynamic with `.Dynamic("key")`:
 
 ```go
 span.Text(count).Dynamic("count")  // Tracked by the Differ
-span.Text(value).Dynamic()          // "_" sentinel - JIT-dynamic but not diff-tracked
+span.Text(value).Dynamic("")        // Empty key - JIT-dynamic but not diff-tracked
 span.Static("hello")                // Static - invisible to the Differ
 ```
 
