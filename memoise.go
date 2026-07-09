@@ -192,8 +192,12 @@ func (m *Memoiser) Diff(root node.Node) ([]Patch, *StructuralChange) {
 // elements render decomposed - open tag, children, close tag - which
 // the generated element code guarantees is byte-identical to
 // RenderBuilder; containers without markup of their own contribute
-// their children (closures evaluated once via Nodes()); nodes without
-// children render via RenderBuilder.
+// their children via Nodes(); nodes without children render via
+// RenderBuilder. A container whose Nodes() is non-empty evaluates its
+// closure once here; one whose closure returns nil looks like a leaf
+// and falls through to a byte-equivalent second evaluation in
+// RenderBuilder, safe because closures are cheap and deterministic (see
+// renderBody in diff.go for the full note).
 //
 // memoKey carries the stringified version from the nearest memoised
 // ancestor. When a Dynamic node is reached, the ancestor version is

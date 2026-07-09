@@ -197,11 +197,19 @@ func renderTracked(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.
 // decomposed - open tag, children, close tag - which the generated
 // element code guarantees is byte-identical to RenderBuilder
 // (RenderBuilder is defined as exactly that sequence). Containers
-// without markup of their own (fragments, conditionals, function and
-// memoised nodes) contribute their children, evaluating any closure
-// once via Nodes(). Nodes without children render via RenderBuilder.
-// Children recurse through renderTracked so nested keyed regions are
-// captured along the way.
+// without markup of their own (conditionals, function and memoised
+// nodes) contribute their children via Nodes(). Children recurse
+// through renderTracked so nested keyed regions are captured along the
+// way.
+//
+// A container whose Nodes() is non-empty evaluates its closure once,
+// here. A container whose closure returns nil is indistinguishable from
+// a leaf by len(Nodes()), so it falls through to RenderBuilder, which
+// evaluates the closure a second time - both times rendering nothing.
+// The double evaluation is harmless because closures are contractually
+// cheap, deterministic and side-effect-free (the render/walk coherence
+// this walk relies on rests on that determinism, enforced by the
+// dev-mode StrictMode detector, not on this walk's structure).
 func renderBody(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.Buffer, order *[]string) {
 	if el, ok := n.(node.Element); ok {
 		el.RenderOpen(page)
