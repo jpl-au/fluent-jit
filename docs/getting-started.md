@@ -86,8 +86,8 @@ content is frozen at first render; dynamic content (`Text()`,
 
 ## Step 4: Add reactive tracking
 
-For live updates (via [Tether](https://github.com/jpl-au/tether) or
-your own transport), mark elements that change between renders:
+For live updates (over any transport you wire up), mark elements that
+change between renders:
 
 ```go
 func render(state State) node.Node {

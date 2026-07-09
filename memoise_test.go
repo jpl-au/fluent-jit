@@ -189,8 +189,8 @@ func TestMemoiserClear(t *testing.T) {
 // TestMemoiserUnseedeedReturnsNil verifies Diff returns nil before
 // Render has been called.
 // TestMemoiserMemoisedCount verifies Memoised() reports the number of
-// keyed regions - zero when the render uses no node.Memoise, which is
-// how tether detects a Memoise-enabled handler that forgot the keys.
+// keyed regions - zero when the render uses no Memoise, which is how a
+// live-update layer detects a Memoise-enabled handler that forgot the keys.
 func TestMemoiserMemoisedCount(t *testing.T) {
 	// No memoise nodes: a plain Dynamic region.
 	plain := NewMemoiser()

@@ -1,9 +1,8 @@
 # Differ
 
 The Differ tracks rendered output of keyed dynamic elements across
-renders and produces targeted patches when content changes. It powers
-[Tether](https://github.com/jpl-au/tether)'s live DOM updates but
-works standalone for any use case that needs incremental HTML updates.
+renders and produces targeted patches when content changes. It works
+standalone for any use case that needs incremental HTML updates.
 
 ## How it works
 
@@ -112,9 +111,9 @@ Returns `jit.ErrDuplicateKey` for programmatic checking.
 
 ## Snapshot persistence
 
-The Differ supports exporting and importing its state as opaque bytes.
-Tether uses this to offload disconnected session data via the
-`DiffStore` interface.
+The Differ supports exporting and importing its state as opaque bytes,
+useful for offloading disconnected-session snapshots to external
+storage.
 
 ```go
 // Export snapshots to bytes (nil if not seeded)

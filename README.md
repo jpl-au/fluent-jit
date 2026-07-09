@@ -10,7 +10,7 @@ Just-In-Time optimisation strategies for the [Fluent](https://github.com/jpl-au/
 
 **Flatten for maximum speed.** For fully static content, pre-render everything to a single `[]byte` that's returned directly on every call. Strategy largely expects the use of `.Static()` calls. Dynamic nodes will cause an error when attempting to render.
 
-**Diff engine.** Track keyed dynamic elements across renders and produce targeted patches for live updates. Powers [Tether](https://github.com/jpl-au/tether)'s reactive UI but works standalone. Supports full-tree diffs and single-key diffs via `DiffKey`.
+**Diff engine.** Track keyed dynamic elements across renders and produce targeted patches for live updates. A standalone engine for any reactive/live-update UI. Supports full-tree diffs and single-key diffs via `DiffKey`.
 
 **Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. Wraps content in `jit.Memoise` with a cache key - when the key matches the previous render, the closure never runs. Use one or the other per session.
 
@@ -92,7 +92,7 @@ jit.Flatten("footer", staticTemplate, w)
 
 ### Differ
 
-Tracks keyed dynamic elements across renders and produces targeted patches for live updates. This is the engine behind [Tether](https://github.com/jpl-au/tether)'s reactive UI, but can be used standalone.
+Tracks keyed dynamic elements across renders and produces targeted patches for live updates. A general-purpose diff engine, usable by any reactive UI layer.
 
 ```go
 differ := jit.NewDiffer()
@@ -133,7 +133,7 @@ if err := differ.Validate(tree); err != nil {
 
 ### Snapshot persistence
 
-The Differ supports exporting and importing its snapshot state as opaque bytes, useful for offloading disconnected session data (e.g. via Tether's `DiffStore` interface).
+The Differ supports exporting and importing its snapshot state as opaque bytes, useful for offloading disconnected-session snapshots to external storage.
 
 ```go
 // Export returns the snapshot data as raw bytes (nil if not seeded)
