@@ -1,10 +1,17 @@
 # Fluent JIT LLM Guide
 
-Fluent JIT provides Just-In-Time optimisation strategies for HTML rendering. It depends on [Fluent](https://github.com/jpl-au/fluent) and provides three optimisation approaches:
+Fluent JIT provides Just-In-Time optimisation strategies for HTML rendering. It depends on [Fluent](https://github.com/jpl-au/fluent) and provides three render strategies and two diff engines.
+
+Render strategies (each has an Instance API and a Global API):
 
 1. **Flatten** - Pre-render fully static content to raw bytes
 2. **Tune** - Adaptive buffer sizing without compilation
 3. **Compile** - Pre-render static content, path-based dynamic node evaluation, adaptive buffer sizing
+
+Diff engines (instance-only, for live updates):
+
+4. **Differ** - Track keyed dynamic elements across renders and produce targeted patches by comparing rendered HTML
+5. **Memoiser** - Like the Differ, but skips a region entirely when its cache version is unchanged, and optionally caches shared regions across sessions
 
 ## Core Concepts
 
@@ -38,10 +45,12 @@ div.New(
 Elements have named convenience methods for common HTML attributes. These are chainable:
 
 ```go
-a.Static("Home").Href("/").Class("nav-link").Id("home-link")
+a.Static("Home").Href("/").Class("nav-link").ID("home-link")
 img.New().Src("/logo.svg").Alt("Logo").Class("logo")
-meta.New().Charset("utf-8")
+meta.New().Charset(charset.UTF8)
 ```
+
+Methods for enumerated attributes accept typed constants from `github.com/jpl-au/fluent/html5/attr/...` (e.g. `charset.UTF8`, `rel.Stylesheet`), not raw strings - a raw string is a compile error. See fluent's AGENTS.md for the full constant reference.
 
 For attributes without a convenience method, use `SetAttribute()`. **This method does not return the element and cannot be chained:**
 
@@ -143,16 +152,19 @@ String-keyed registry using `sync.Map`:
 
 ```go
 // Flatten (falls back to normal render if dynamic)
-jit.Flatten("id", node, w)
+jit.Flatten("id", node, w)                     // fire-and-forget
+n, err := jit.FlattenWriteTo("id", node, w)    // returns (int64, error)
 output := jit.FlattenBytes("id", node)
 
 // Tune
 jit.Tune("id", node, w)
-output := jit.TuneBytes("id", node)
+n, err = jit.TuneWriteTo("id", node, w)
+output = jit.TuneBytes("id", node)
 
 // Compile
 jit.Compile("id", node, w)
-output := jit.CompileBytes("id", node)
+n, err = jit.CompileWriteTo("id", node, w)
+output = jit.CompileBytes("id", node)
 
 // Pre-configure before first use
 jit.TuneConfig("id", jit.TunerCfg{...})
@@ -208,11 +220,11 @@ var headerFlattener, _ = jit.NewFlattener(
 
 // Common head elements
 var headFlattener, _ = jit.NewFlattener(
-    node.Fragment(
-        meta.New().Charset("utf-8"),
-        meta.New().Name("viewport").Content("width=device-width, initial-scale=1"),
-        link.New().Rel("stylesheet").Href("/styles.css"),
-        link.New().Rel("icon").Href("/favicon.ico"),
+    html.Fragment(
+        meta.UTF8(),
+        meta.Viewport("width=device-width, initial-scale=1"),
+        link.Stylesheet("/styles.css"),
+        link.Icon("/favicon.ico"),
     ),
 )
 
@@ -243,16 +255,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 ### Template with Mixed Content
 
 ```go
-func Page(title string, items []Item) node.Node {
+func Page(pageTitle string, items []Item) node.Node {
     return html.New(
         head.New(
-            title.Text(title),           // Dynamic
+            title.Text(pageTitle),       // Dynamic
             link.Stylesheet("/app.css"), // Static
         ),
         body.New(
             header.Static("My Site"),    // Static
             primary.New(
-                h1.Text(title),          // Dynamic
+                h1.Text(pageTitle),      // Dynamic
                 ItemList(items),         // Dynamic (contains Func)
             ),
             footer.Static("Footer"),     // Static
@@ -309,7 +321,7 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 | Tune | Any | Content with variable sizes, want buffer optimisation only |
 | Compile | Mixed static/dynamic | Templates rendered many times with different data |
 | Differ | Dynamic (keyed) | Live updates - tracks keyed elements, produces patches |
-| Memoiser | Dynamic (keyed + memoised) | Like Differ but skips unchanged subtrees via `jit.Memoise` keys |
+| Memoiser | Dynamic (keyed + versioned) | Like Differ but skips a region when its cache version is unchanged; also caches `jit.Shared` regions across sessions |
 
 ## Common Pitfalls
 
@@ -431,8 +443,8 @@ if patch != nil {
 
 DiffKey updates the stored snapshot for the targeted key so
 subsequent full Diff calls see the new content. It does not check
-memoisation keys (on the Memoiser) because the developer is explicitly
-targeting this key.
+memoisation versions (on the Memoiser) because the developer is
+explicitly targeting this key.
 
 ### Dynamic keys
 
@@ -447,15 +459,29 @@ span.Static("hello")                // Static - invisible to the Differ
 ## Memoiser
 
 An alternative to the Differ that skips unchanged subtrees. Each
-Dynamic region wraps its content in `jit.Memoise` with a cache key.
-When the key matches the previous render, the closure never runs and
-no HTML is produced for that region.
+Dynamic region carries a cache version. When the version matches the
+previous render at the same tree position, the region is skipped
+entirely - no HTML is produced and no comparison is done.
+
+A region gets its version one of two ways:
+
+- **Chained** - `.Memoise(version)` on a keyed element:
+  `div.New(rows...).Dynamic("board").Memoise(version)`. The subtree is
+  built eagerly, but on a hit it is neither rendered nor diffed. The
+  most ergonomic form when the subtree is cheap to build.
+- **Wrapped** - `jit.Memoise(version, func() node.Node)`, a lazy node
+  whose closure is skipped on a hit. Use this form when building the
+  subtree is itself expensive, so construction is deferred too.
+
+The version is compared with `==`. Use a counter, hash, timestamp, or
+any comparable value where equality means "the subtree has not
+changed". Slices, maps, and functions are not comparable and panic.
 
 ```go
 memoiser := jit.NewMemoiser()
 
-// Initial render - stores snapshots and memoisation keys
-html := memoiser.Render(tree)
+// Initial render - stores snapshots and memoisation versions
+html := memoiser.RenderBytes(tree)
 
 // After state change - skips unchanged subtrees
 patches, change := memoiser.Diff(newTree)
@@ -467,12 +493,13 @@ DiffKey for targeted single-key diffs.
 
 ### Render function pattern
 
-Both nesting patterns work. The Memoiser propagates memo keys from
-ancestor Memoiser nodes to descendant Dynamic nodes:
+The wrapped `jit.Memoise` form has two valid nesting positions. Both
+work: the Memoiser propagates the memo version from an ancestor
+`jit.Memoise` node down to a descendant Dynamic node.
 
 **Pattern 1: Memoise inside Dynamic (preferred)**
 
-The Memoiser finds the key on the Dynamic node's child. On a cache
+The Memoiser finds the version on the Dynamic node's child. On a cache
 hit, the closure never executes - maximum performance.
 
 ```go
@@ -485,7 +512,7 @@ div.New(
 
 **Pattern 2: Memoise wrapping Dynamic**
 
-The Memoiser propagates the ancestor key to the Dynamic descendant.
+The Memoiser propagates the ancestor version to the Dynamic descendant.
 On a cache hit, the snapshot comparison is skipped. The closure still
 executes to produce the tree structure, but no HTML is generated.
 
@@ -516,46 +543,96 @@ func render(s State) node.Node {
 }
 ```
 
-Dynamic regions without a `jit.Memoise` key (neither as a child nor
-as an ancestor) are always re-rendered (treated as a miss). The
-Memoiser does not fall back to content-based diffing for non-memoised
-nodes.
+Dynamic regions with no version (no chained `.Memoise`, and no
+`jit.Memoise` child or ancestor) are always re-rendered (treated as a
+miss). The Memoiser does not fall back to content-based diffing for
+non-memoised nodes.
+
+### Shared regions (across sessions)
+
+A plain memoised region is cached within one session. `jit.Shared`
+marks a region whose rendered bytes may be reused across every session
+in the process, via a process-global fragment cache. The first session
+to render a given key populates the cache; every other session with
+the same key is served those bytes instead of running the closure. Use
+it for regions that render identically for every user - a shared
+header, a navigation bar, a live scoreboard broadcast to a room.
+
+```go
+div.New(
+    jit.Shared("leaderboard:"+boardVersion, func() node.Node {
+        return renderBoard(board)
+    }),
+).Dynamic("board")
+```
+
+The contract is stricter than plain memoisation: the key MUST be
+globally unique and MUST fully determine the rendered bytes. Namespace
+it and derive it from the content (`"nav:v3"`, `"board:"+hash`), never
+from per-session state - two sessions with the same key are served the
+same bytes. `jit.Shared` enforces none of this; correctness is the
+caller's.
+
+The cache is bounded by a two-generation scheme with a per-generation
+entry cap (default 2048) and byte budget (default 32MB), so total
+residency is at most about twice each figure. Tune it at startup,
+before serving traffic:
+
+```go
+jit.SetSharedCacheSize(4096)      // per-generation entry cap
+jit.SetSharedCacheBudget(64 << 20) // per-generation byte budget
+jit.ResetSharedCache()             // empty the cache (keeps size/budget)
+n := jit.SharedCacheLen()          // distinct fragments currently resident
+```
 
 ### Stats
 
-After each Diff call, `Stats()` returns the hit and miss counts:
+After each Diff (or seeding Render) call, `Stats()` returns the hit and
+miss counts:
 
 ```go
 patches, change := memoiser.Diff(tree)
 hits, misses := memoiser.Stats()
+sharedHits, sharedMisses := memoiser.SharedStats() // subset resolved via jit.Shared cache
+regions := memoiser.Memoised()                     // Dynamic regions that carried a version
 ```
 
-A hit means the memoisation key matched and the subtree was skipped. A miss
-means the key differed (or was absent) and the subtree was
-re-rendered. Zero overhead - just two integer increments per memoised
-node during the existing tree walk.
+A hit means the version matched and the subtree was skipped. A miss
+means the version differed (or was absent) and the subtree was
+re-rendered. `SharedStats()` reports how many regions were resolved
+through the process-global `jit.Shared` cache - a subset of the miss
+count, since a shared region only reaches the cache when its
+per-session version changed. `Memoised()` reports how many Dynamic
+regions carried a version in the most recent Diff; zero means the
+render tree used no memoisation at all, so the Memoiser degrades to
+plain diff behaviour. Overhead is a pair of integer increments per
+memoised node during the existing tree walk.
 
 ### Key differences from Differ
 
 | | Differ | Memoiser |
 |---|---|---|
-| Skips unchanged subtrees | No - always re-renders and compares HTML | Yes - matching memoisation keys skip entirely |
-| Requires `jit.Memoise` | No | Yes, for each Dynamic region |
+| Skips unchanged subtrees | No - always re-renders and compares HTML | Yes - matching versions skip entirely |
+| Requires a cache version | No | Yes, per Dynamic region (chained `.Memoise` or `jit.Memoise`) |
+| Cross-session caching | No | Yes, via `jit.Shared` |
 | Content-based diffing | Yes - compares rendered HTML | Only for misses |
 | DiffKey | Yes | Yes |
-| Export/Import | Yes | Yes (includes memoisation keys) |
+| Export/Import | Yes | Yes (includes memoisation versions) |
 
 ## Package Structure
 
 ```
 fluent-jit/
-├── jit.go       # Package docs, dynamic detection, config structs
+├── doc.go       # Package overview: strategy selection, Differ vs Memoiser
+├── jit.go       # Sentinel errors, config structs, dynamic detection
 ├── compile.go   # Compiler: execution plan building and rendering
 ├── tune.go      # Tuner: adaptive buffer sizing wrapper
 ├── adaptive.go  # AdaptiveSizer: two-phase buffer sizing logic
 ├── flatten.go   # Flattener: static content pre-rendering
 ├── diff.go      # Differ: keyed element tracking and targeted patches
-├── memoise.go   # Memoiser: memoisation-key-aware subtree skipping, Stats, DiffKey
+├── memoise.go   # Memoiser: version-aware subtree skipping, Stats, DiffKey
+├── memonode.go  # Memoise, Shared node constructors; Memoised interface
+├── shared.go    # Process-global shared-fragment cache and tuning
 ├── global.go    # Global API: sync.Map registries and helpers
 └── go.mod       # Module definition
 ```
@@ -564,6 +641,6 @@ fluent-jit/
 
 Applications using Fluent JIT benefit from [PGO](https://go.dev/doc/pgo) (Go 1.21+). Collect a CPU profile from production, place it as `default.pgo` in the main package, and `go build` applies it automatically. Expect 10-20% speed improvements across compile, tune, and flatten paths with no code changes. Allocations are unaffected - PGO improves inlining decisions only.
 
-## License
+## Licence
 
 MIT

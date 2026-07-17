@@ -7,7 +7,7 @@ standalone for any use case that needs incremental HTML updates.
 ## How it works
 
 1. Mark elements with `.Dynamic("key")` in your Fluent tree
-2. Call `Render(w)` or `RenderBytes()` to capture the initial state (snapshots)
+2. Call `Render(tree, w)` or `RenderBytes(tree)` to capture the initial state (snapshots)
 3. After state changes, call `Diff()` with the new tree
 4. Receive patches for only the elements that changed
 
@@ -52,6 +52,10 @@ Passing an empty-string key (`.Dynamic("")`) marks the element as
 dynamic for JIT purposes but does not register it with the Differ. A key
 is required; only a non-empty key produces patches.
 
+`.Dynamic()` is a chainable hook method Fluent core provides on every
+element; outside a diff engine its only effect is the rendered
+`data-fluent-key` attribute.
+
 ## Structural changes
 
 When `Diff()` returns a non-nil `*StructuralChange`, keys were added,
@@ -73,7 +77,7 @@ Fields on `*StructuralChange`:
 - `Removed` - keys in the old tree not in the new
 - `Reordered` - same keys but different order
 
-After a structural change, call `Render(w)` or `RenderBytes()` to re-establish the
+After a structural change, call `Render(tree, w)` or `RenderBytes(tree)` to re-establish the
 baseline. Patches from `Diff()` are not reliable when keys have
 changed.
 

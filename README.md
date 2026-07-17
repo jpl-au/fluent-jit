@@ -12,13 +12,13 @@ Just-In-Time optimisation strategies for the [Fluent](https://github.com/jpl-au/
 
 **Diff engine.** Track keyed dynamic elements across renders and produce targeted patches for live updates. A standalone engine for any reactive/live-update UI. Supports full-tree diffs and single-key diffs via `DiffKey`.
 
-**Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. Wraps content in `jit.Memoise` with a cache key - when the key matches the previous render, the closure never runs. Use one or the other per session.
+**Memoiser.** An alternative to the Differ that skips unchanged subtrees entirely. A region carries a cache version - chained as `.Memoise(version)` on a keyed element, or wrapped in `jit.Memoise` - and when the version matches the previous render, the region is skipped. `jit.Shared` regions go further, caching rendered bytes across every session in the process. Use the Differ or the Memoiser per session, not both.
 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) - add JIT to your Fluent app, step by step
 - [Differ](docs/diff.md) - keyed element tracking, targeted patches, snapshot persistence
-- [Memoiser](docs/memoise.md) - skip unchanged subtrees with cache keys
+- [Memoiser](docs/memoise.md) - skip unchanged subtrees with cache versions
 - `AGENTS.md` - comprehensive technical reference for LLMs
 
 ## Install
@@ -31,7 +31,7 @@ Requires [Fluent](https://github.com/jpl-au/fluent) as a dependency.
 
 ## Optimisation Strategies
 
-Fluent JIT provides three strategies, each with an Instance API and a Global API.
+Fluent JIT provides three render strategies - each with an Instance API and a Global API - plus two instance-only diff engines (Differ and Memoiser) for live updates.
 
 ### Compile
 
@@ -170,14 +170,14 @@ if patch != nil {
 ### Memoiser
 
 An alternative to the Differ that skips unchanged subtrees. Each
-Dynamic region wraps its content in `jit.Memoise` with a cache key.
-When the key matches the previous render, the closure never runs
-and no HTML is produced for that region.
+Dynamic region carries a cache version. When the version matches the
+previous render, the region is skipped - no HTML is produced and no
+diff is done.
 
 ```go
 memoiser := jit.NewMemoiser()
 
-// Initial render - stores snapshots and memoisation keys
+// Initial render - stores snapshots and memoisation versions
 html := memoiser.RenderBytes(tree)
 
 // After state change - skips unchanged subtrees
@@ -188,7 +188,15 @@ The Memoiser is a standalone engine, not a wrapper around the
 Differ. Use one or the other per session, not both. Both support
 `DiffKey` for targeted single-key diffs.
 
-The render function uses `jit.Memoise` to mark skippable regions:
+A region gets its version by chaining `.Memoise(version)` on a keyed
+element:
+
+```go
+div.New(rows...).Dynamic("board").Memoise(version)
+```
+
+or by wrapping it in `jit.Memoise`, which also defers building the
+subtree until it is actually needed:
 
 ```go
 div.New(
@@ -198,9 +206,31 @@ div.New(
 ).Dynamic("items")
 ```
 
-When `version` matches the previous render, the closure is not
-called and the stored snapshot is reused. When it changes, the
-closure runs and the result is diffed against the previous snapshot.
+Either way, when `version` matches the previous render the region is
+reused from its stored snapshot; when it changes, the subtree renders
+and is diffed against that snapshot.
+
+### Shared regions
+
+`jit.Shared` marks a region whose rendered bytes may be reused across
+every session in the process, not just across renders of one session.
+The first session to render a given key populates a process-global
+cache; every other session with the same key is served those bytes.
+Use it for regions that render identically for every user - a shared
+header, a broadcast leaderboard.
+
+```go
+div.New(
+    jit.Shared("leaderboard:"+boardVersion, func() node.Node {
+        return renderBoard(board)
+    }),
+).Dynamic("board")
+```
+
+The key must be globally unique and fully determine the rendered bytes:
+namespace it and derive it from the content (`"nav:v3"`), never from
+per-session state. Tune the cache at startup with `jit.SetSharedCacheSize`,
+`jit.SetSharedCacheBudget`, and clear it with `jit.ResetSharedCache`.
 
 ## Configuration
 

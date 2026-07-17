@@ -2,22 +2,32 @@
 
 The Memoiser is an alternative to the [Differ](diff.md) that skips
 unchanged subtrees entirely. Where the Differ always re-renders keyed
-elements and compares the HTML output, the Memoiser checks a cache key
-first and skips the render closure when the key matches.
+elements and compares the HTML output, the Memoiser checks a cache
+version first and skips the region when the version matches.
 
 Use the Memoiser when your render tree has expensive subtrees that
 rarely change. Use the Differ when all subtrees are cheap to render
 and content-based comparison is sufficient.
 
+Each Dynamic region carries its cache version one of two ways: chained
+as `.Memoise(version)` on the keyed element, or wrapped in a
+`jit.Memoise(version, func)` node. (`.Dynamic()` and `.Memoise()` are
+chainable hook methods Fluent core provides on every element - plain
+rendering ignores them; `jit.Memoise` and `jit.Shared` are node
+constructors from this package.) The version is compared with `==`,
+so use a counter, hash, timestamp, or any comparable value where
+equality means "the subtree has not changed". Slices, maps, and
+functions are not comparable and panic.
+
 ## How it works
 
-1. Wrap expensive subtrees in `jit.Memoise(key, func)` inside a
-   `.Dynamic("key")` region
-2. On first render, the closure runs and the output is stored
-3. On subsequent renders, if the memoisation key matches, the closure
-   is skipped and the stored snapshot is reused
-4. If the key changes, the closure runs, the output is diffed against
-   the stored snapshot, and a patch is produced
+1. Give an expensive Dynamic region a cache version - chained
+   `.Memoise(version)` or a `jit.Memoise(version, func)` node
+2. On first render, the region is rendered and its output stored
+3. On subsequent renders, if the version matches, the region is
+   skipped and the stored snapshot is reused
+4. If the version changes, the region renders, the output is diffed
+   against the stored snapshot, and a patch is produced
 
 ## Basic usage
 
@@ -41,10 +51,23 @@ if change != nil {
 
 ## Render function patterns
 
-### Pattern 1: Memoise inside Dynamic (preferred)
+### Chained form
 
-The Memoiser finds the memoisation key on the Dynamic node's child.
-On a cache hit, the closure never executes.
+Chain `.Memoise(version)` directly on the keyed element. The subtree
+is built eagerly, but on a cache hit it is neither rendered nor
+diffed. This is the most ergonomic form when the subtree is cheap to
+build.
+
+```go
+div.New(renderRows(state.Items.Val)...).Dynamic("items").Memoise(state.Items.Version())
+```
+
+### Wrapped form, Memoise inside Dynamic
+
+Wrap the subtree in `jit.Memoise`. The Memoiser finds the version on
+the Dynamic node's child, and on a cache hit the closure never
+executes - construction is deferred too, which matters when building
+the subtree is itself expensive.
 
 ```go
 div.New(
@@ -54,11 +77,12 @@ div.New(
 ).Dynamic("items")
 ```
 
-### Pattern 2: Memoise wrapping Dynamic
+### Wrapped form, Memoise wrapping Dynamic
 
-The Memoiser propagates the ancestor key to the Dynamic descendant.
-On a cache hit, the snapshot comparison is skipped. The closure still
-executes to produce the tree structure, but no HTML is generated.
+The Memoiser propagates the ancestor version to the Dynamic
+descendant. On a cache hit, the snapshot comparison is skipped. The
+closure still executes to produce the tree structure, but no HTML is
+generated.
 
 ```go
 jit.Memoise(state.Items.Version(), func() node.Node {
@@ -66,9 +90,9 @@ jit.Memoise(state.Items.Version(), func() node.Node {
 })
 ```
 
-Pattern 1 is preferred because the closure is fully skipped on a hit.
-Pattern 2 is supported for convenience when the Dynamic key is set
-inside a component function.
+Prefer the chained form or Memoise-inside-Dynamic: both fully skip the
+render on a hit. Memoise-wrapping-Dynamic is supported for convenience
+when the Dynamic key is set inside a component function.
 
 ## Full example
 
@@ -87,10 +111,46 @@ func render(state State) node.Node {
 }
 ```
 
-Dynamic regions without a `jit.Memoise` key (neither as a child nor
-as an ancestor) are always re-rendered - treated as a cache miss. The
-Memoiser does not fall back to content-based diffing for non-memoised
-nodes.
+Dynamic regions with no version (no chained `.Memoise`, and no
+`jit.Memoise` child or ancestor) are always re-rendered - treated as a
+cache miss. The Memoiser does not fall back to content-based diffing
+for non-memoised nodes.
+
+## Shared regions
+
+A plain memoised region is cached within one session. `jit.Shared`
+marks a region whose rendered bytes may be reused across every session
+in the process, via a process-global fragment cache. The first session
+to render a given key populates the cache; every other session with
+the same key is served those bytes instead of running the closure. Use
+it for regions that render identically for every user - a shared
+header, a navigation bar, a live scoreboard broadcast to a room.
+
+```go
+div.New(
+    jit.Shared("leaderboard:"+state.BoardVersion, func() node.Node {
+        return renderBoard(state.Board)
+    }),
+).Dynamic("board")
+```
+
+The contract is stricter than plain memoisation: the key must be
+globally unique and must fully determine the rendered bytes. Namespace
+it and derive it from the content (`"nav:v3"`, `"board:"+hash`), never
+from per-session state - two sessions with the same key are served the
+same bytes.
+
+The cache is bounded by a two-generation scheme with a per-generation
+entry cap (default 2048) and byte budget (default 32MB); total
+residency stays at most about twice each figure. Tune it at startup,
+before serving traffic:
+
+```go
+jit.SetSharedCacheSize(4096)       // per-generation entry cap
+jit.SetSharedCacheBudget(64 << 20) // per-generation byte budget
+jit.ResetSharedCache()             // empty the cache (keeps size/budget)
+n := jit.SharedCacheLen()          // distinct fragments currently resident
+```
 
 ## DiffKey
 
@@ -103,27 +163,35 @@ if patch != nil {
 }
 ```
 
-`DiffKey` does not check memoisation keys - the developer is
-explicitly targeting this key, so the closure runs unconditionally.
+`DiffKey` does not check the memoisation version - the developer is
+explicitly targeting this key, so the subtree renders unconditionally.
 
 ## Stats
 
-After each `Diff` call, `Stats()` returns the hit and miss counts:
+After each `Diff` (or seeding `Render`) call, `Stats()` returns the hit
+and miss counts:
 
 ```go
 patches, change := memoiser.Diff(tree)
 hits, misses := memoiser.Stats()
+sharedHits, sharedMisses := memoiser.SharedStats() // subset resolved via the shared cache
+regions := memoiser.Memoised()                     // Dynamic regions that carried a version
 ```
 
-A hit means the memoisation key matched and the subtree was skipped.
-A miss means the key differed (or was absent) and the subtree was
-re-rendered. Zero overhead - just two integer increments per memoised
-node during the tree walk.
+A hit means the version matched and the subtree was skipped. A miss
+means the version differed (or was absent) and the subtree was
+re-rendered. `SharedStats()` reports the subset of regions resolved
+through the process-global `jit.Shared` cache. `Memoised()` reports
+how many Dynamic regions carried a version in the most recent Diff;
+zero means the tree used no memoisation, so the Memoiser degrades to
+plain diff behaviour - a quick way to catch a Memoise-enabled handler
+whose render forgot the versions. Overhead is a pair of integer
+increments per memoised node during the tree walk.
 
 ## Export/Import
 
 Like the Differ, the Memoiser supports snapshot persistence. The
-exported data includes memoisation keys alongside the snapshot HTML.
+exported data includes memoisation versions alongside the snapshot HTML.
 
 ```go
 data := memoiser.Export()
@@ -135,11 +203,12 @@ memoiser.Import(data)
 
 | | Differ | Memoiser |
 |---|---|---|
-| Skips unchanged subtrees | No - always re-renders, compares HTML | Yes - matching keys skip entirely |
-| Requires `jit.Memoise` | No | Yes, for each Dynamic region |
+| Skips unchanged subtrees | No - always re-renders, compares HTML | Yes - matching versions skip entirely |
+| Requires a cache version | No | Yes, per Dynamic region (chained `.Memoise` or `jit.Memoise`) |
+| Cross-session caching | No | Yes, via `jit.Shared` |
 | Content-based diffing | Yes - compares rendered HTML | Only for misses |
 | DiffKey | Yes | Yes |
-| Export/Import | Yes | Yes (includes memoisation keys) |
+| Export/Import | Yes | Yes (includes memoisation versions) |
 | Best for | Cheap renders, frequent changes | Expensive renders, infrequent changes |
 
 Use one or the other per session, not both. They are standalone

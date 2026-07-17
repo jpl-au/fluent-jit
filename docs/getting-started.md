@@ -57,7 +57,7 @@ var headerFlat, _ = jit.NewFlattener(
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
-    headerFlat.Render(w)      // raw bytes, no rendering
+    headerFlat.Render(w) // raw bytes, no rendering
     tuner.Render(page, w) // dynamic content
 }
 ```
@@ -98,6 +98,11 @@ func render(state State) node.Node {
     )
 }
 ```
+
+`.Dynamic()` is a chainable method every Fluent element provides as an
+engine hook - plain rendering ignores it (beyond emitting a
+`data-fluent-key` attribute), so the same tree renders identically
+outside the JIT.
 
 The Differ compares renders and produces targeted patches:
 
@@ -141,10 +146,19 @@ func render(state State) node.Node {
 }
 ```
 
-When the version key matches the previous render, the closure never
-runs and the stored snapshot is reused.
+When the version matches the previous render, the closure never runs
+and the stored snapshot is reused. For a subtree that is cheap to
+build, you can skip the closure and chain the version on the keyed
+element instead:
 
-See [memoise.md](memoise.md) for the full Memoiser API.
+```go
+div.New(renderRows(state.Items.Val)...).Dynamic("items").Memoise(state.Items.Version())
+```
+
+For regions that render identically for every user - a shared header,
+a broadcast leaderboard - `jit.Shared` caches the rendered bytes across
+sessions in the process. See [memoise.md](memoise.md) for the full
+Memoiser API, including shared regions and their cache tuning.
 
 ## Choosing a strategy
 
