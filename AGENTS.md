@@ -46,8 +46,8 @@ Elements have named convenience methods for common HTML attributes. These are ch
 
 ```go
 a.Static("Home").Href("/").Class("nav-link").ID("home-link")
-img.New().Src("/logo.svg").Alt("Logo").Class("logo")
-meta.New().Charset(charset.UTF8)
+img.Image("/logo.svg", "Logo").Class("logo")
+meta.Charset(charset.UTF8)
 ```
 
 Methods for enumerated attributes accept typed constants from `github.com/jpl-au/fluent/html5/attr/...` (e.g. `charset.UTF8`, `rel.Stylesheet`), not raw strings - a raw string is a compile error. See fluent's AGENTS.md for the full constant reference.
@@ -212,7 +212,7 @@ var headerFlattener, _ = jit.NewFlattener(
             a.Static("Contact").Href("/contact"),
         ).Class("nav"),
         div.New(
-            img.New().Src("/logo.svg").Alt("Company Logo"),
+            img.Image("/logo.svg", "Company Logo"),
             span.Static("Company Name"),
         ).Class("logo"),
     ).Class("site-header"),
