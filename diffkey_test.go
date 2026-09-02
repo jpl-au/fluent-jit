@@ -47,8 +47,8 @@ func TestDiffKeyDetectsChange(t *testing.T) {
 // node.EscapeAttribute rewrites round-trips through the differ. The key is stored
 // RAW (its diff identity), so the differ matches it across renders, the patch
 // carries the raw key the developer passed, and DiffKey by that same raw key hits
-// the stored snapshot. The key is escaped only where it renders, inside
-// data-fluent-key, so it cannot break out of the attribute.
+// the stored snapshot. The key is escaped only where it renders, inside the
+// id attribute, so it cannot break out of the attribute.
 func TestDiffKeyWithSpecialChars(t *testing.T) {
 	const raw = `item "1" & <2>`
 	escaped := node.EscapeAttribute(raw)
@@ -77,7 +77,7 @@ func TestDiffKeyWithSpecialChars(t *testing.T) {
 		t.Errorf("patch key should be the raw key %q, got %q", raw, patches[0].Key)
 	}
 	// The key renders escaped inside the attribute, so it cannot break out.
-	if !bytes.Contains(patches[0].HTML, []byte(`data-fluent-key="`+escaped+`"`)) {
+	if !bytes.Contains(patches[0].HTML, []byte(`id="`+escaped+`"`)) {
 		t.Errorf("rendered key should be escaped, got %q", patches[0].HTML)
 	}
 	// DiffKey by the raw key finds the snapshot: no spurious patch for unchanged

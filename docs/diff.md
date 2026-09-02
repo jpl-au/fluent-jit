@@ -53,8 +53,8 @@ dynamic for JIT purposes but does not register it with the Differ. A key
 is required; only a non-empty key produces patches.
 
 `.Dynamic()` is a chainable hook method Fluent core provides on every
-element; outside a diff engine its only effect is the rendered
-`data-fluent-key` attribute.
+element; outside a diff engine its only effect is that the key renders
+as the element's `id` attribute.
 
 ## Structural changes
 

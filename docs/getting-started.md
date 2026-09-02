@@ -100,8 +100,8 @@ func render(state State) node.Node {
 ```
 
 `.Dynamic()` is a chainable method every Fluent element provides as an
-engine hook - plain rendering ignores it (beyond emitting a
-`data-fluent-key` attribute), so the same tree renders identically
+engine hook - plain rendering ignores it (beyond rendering the key as
+the element's `id` attribute), so the same tree renders identically
 outside the JIT.
 
 The Differ compares renders and produces targeted patches:

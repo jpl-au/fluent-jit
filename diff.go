@@ -18,6 +18,10 @@ import (
 // each dynamic element across renders.
 var ErrDuplicateKey = fmt.Errorf("duplicate dynamic key in render tree")
 
+// ErrInvalidKey is returned when a dynamic key contains whitespace. A key
+// renders as the element's id, which cannot contain whitespace.
+var ErrInvalidKey = fmt.Errorf("dynamic key contains whitespace")
+
 // exportVersion is the first byte of every Export blob. Import rejects
 // data whose version it does not understand, so the encoding can evolve
 // without silently misreading old blobs. Bump it when the layout changes.
@@ -341,9 +345,11 @@ func describeChange(prev, current []string) *StructuralChange {
 	}
 }
 
-// Validate checks a tree for duplicate dynamic keys. Keys must be unique
-// within a tree so the diff engine can track each element unambiguously.
-// Returns nil if all keys are unique.
+// Validate checks a tree's dynamic keys. Keys must be unique within a
+// tree so the diff engine can track each element unambiguously, and
+// must contain no whitespace because a key renders as the element's id
+// and an id with whitespace is not a single token to the browser.
+// Returns nil if every key is valid.
 //
 // Validate walks the tree, evaluating any Func closures; validate-
 // then-render therefore evaluates closures twice. Intended for
@@ -572,6 +578,9 @@ func validateKeys(n node.Node, seen map[string]bool) error {
 		if key != "" {
 			if seen[key] {
 				return fmt.Errorf("%w: %q", ErrDuplicateKey, key)
+			}
+			if strings.ContainsAny(key, " \t\n\r\f") {
+				return fmt.Errorf("%w: %q", ErrInvalidKey, key)
 			}
 			seen[key] = true
 		}

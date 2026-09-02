@@ -414,6 +414,25 @@ func TestDifferValidateDuplicateKeys(t *testing.T) {
 	}
 }
 
+// TestDifferValidateWhitespaceKey verifies that Validate rejects a key
+// containing whitespace. The key renders as the element's id, and an id
+// with whitespace is not a single token the browser can look up.
+func TestDifferValidateWhitespaceKey(t *testing.T) {
+	differ := NewDiffer()
+
+	tree := div.New(
+		span.Text("first").Dynamic("two words"),
+	)
+
+	err := differ.Validate(tree)
+	if err == nil {
+		t.Fatal("a key with whitespace should fail validation - it cannot be an id")
+	}
+	if !errors.Is(err, ErrInvalidKey) {
+		t.Errorf("error should wrap ErrInvalidKey for programmatic checking, got: %v", err)
+	}
+}
+
 // TestDifferValidateUniqueKeys verifies that Validate passes when all
 // dynamic keys in the tree are unique.
 func TestDifferValidateUniqueKeys(t *testing.T) {
