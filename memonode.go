@@ -53,9 +53,10 @@ type SharedMemoised interface {
 // is skipped if the version matches the previous render at the same
 // tree position.
 //
-// The version is compared with ==. Use a counter, a comparable struct,
-// or any value where equality means "the subtree has not changed".
-// Slices, maps, and functions are not comparable and will panic.
+// Versions are converted to strings using scalar formatting, with
+// fmt.Sprint for other types. Prefer counters or stable string keys that
+// fully identify the region's content. A parent version governs its whole
+// subtree: a parent cache hit also skips checks of nested child versions.
 //
 // For subtrees that are cheap to build but expensive to render and
 // diff, the chained element form is more ergonomic and equivalent on

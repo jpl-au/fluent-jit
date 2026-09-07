@@ -14,10 +14,9 @@ as `.Memoise(version)` on the keyed element, or wrapped in a
 `jit.Memoise(version, func)` node. (`.Dynamic()` and `.Memoise()` are
 chainable hook methods Fluent core provides on every element - plain
 rendering ignores them; `jit.Memoise` and `jit.Shared` are node
-constructors from this package.) The version is compared with `==`,
-so use a counter, hash, timestamp, or any comparable value where
-equality means "the subtree has not changed". Slices, maps, and
-functions are not comparable and panic.
+constructors from this package.) Versions are converted to strings
+using scalar formatting, with `fmt.Sprint` for other types. Prefer
+counters or stable string keys that fully identify the region's content.
 
 ## How it works
 
@@ -113,8 +112,28 @@ func render(state State) node.Node {
 
 Dynamic regions with no version (no chained `.Memoise`, and no
 `jit.Memoise` child or ancestor) are always re-rendered - treated as a
-cache miss. The Memoiser does not fall back to content-based diffing
-for non-memoised nodes.
+cache miss. Their rendered HTML is compared with the previous snapshot.
+
+## Nested regions
+
+The Memoiser tracks nested Dynamic keys and selects patches using the
+same rules as the [Differ](diff.md): content-only changes can target a
+child, membership changes target its enclosing container, and parent
+patches suppress descendant patches.
+
+A matching parent version skips the entire subtree, including child
+version checks. The parent's version must therefore change whenever
+any content below it changes. If children should update independently,
+leave the parent unversioned and give the children their own versions.
+When a parent renders, an unchanged child version can still skip that
+child's closure. A version inherited from a wrapper is consumed at the
+first Dynamic region; it does not implicitly version every nested key.
+A keyed child's chained version applies to that child, never to its parent.
+
+Shared cache entries include nested snapshots as well as HTML. A cache
+hit preserves the ability to target a child with `DiffKey` without
+running the shared closure. Targeted session updates never alter the
+process-global cached entry.
 
 ## Shared regions
 
@@ -165,11 +184,16 @@ if patch != nil {
 
 `DiffKey` does not check the memoisation version - the developer is
 explicitly targeting this key, so the subtree renders unconditionally.
+The target and its descendants receive fresh snapshots. Enclosing HTML
+snapshots are updated too, and enclosing memoisation versions are
+invalidated so a later full diff can reconcile the targeted update.
+Unrelated memoised regions retain their cache hits.
 
 ## Stats
 
-After each `Diff` (or seeding `Render`) call, `Stats()` returns the hit
-and miss counts:
+After each `Diff`, `Stats()` returns the hit and miss counts. `Render`
+and `Clear` reset these counts; `SharedStats` also reports seeding hits
+and misses:
 
 ```go
 patches, change := memoiser.Diff(tree)
@@ -182,7 +206,7 @@ A hit means the version matched and the subtree was skipped. A miss
 means the version differed (or was absent) and the subtree was
 re-rendered. `SharedStats()` reports the subset of regions resolved
 through the process-global `jit.Shared` cache. `Memoised()` reports
-how many Dynamic regions carried a version in the most recent Diff;
+how many stored Dynamic regions carry a version, including nested ones;
 zero means the tree used no memoisation, so the Memoiser degrades to
 plain diff behaviour - a quick way to catch a Memoise-enabled handler
 whose render forgot the versions. Overhead is a pair of integer
@@ -191,7 +215,9 @@ increments per memoised node during the tree walk.
 ## Export/Import
 
 Like the Differ, the Memoiser supports snapshot persistence. The
-exported data includes memoisation versions alongside the snapshot HTML.
+exported data includes memoisation versions and the region hierarchy
+alongside the snapshot HTML. A failed import leaves the existing
+baseline intact.
 
 ```go
 data := memoiser.Export()

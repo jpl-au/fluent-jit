@@ -7,7 +7,9 @@ import "sync"
 // [Memoiser] caches within a single session; this cache is process-
 // global, so when a shared header or a broadcast leaderboard changes,
 // the closure runs once for the whole process instead of once per
-// connected session. Nodes opt in via [Shared].
+// connected session. Nodes opt in via [Shared]. Entries contain encoded
+// HTML and nested region metadata, so cache hits retain targeted child
+// updates. The byte budget includes both the HTML and this metadata.
 //
 // Memory is bounded with a two-generation scheme rather than per-entry
 // LRU bookkeeping: writes fill the current map, and when it reaches

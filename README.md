@@ -104,7 +104,7 @@ html := differ.RenderBytes(tree)
 patches, change := differ.Diff(newTree)
 
 if change != nil {
-    // Structural change - keys were added, removed, or reordered.
+    // Outermost keys were added, removed, or reordered.
     // change.String() describes what happened, e.g. "key 'sidebar' added"
     html = differ.RenderBytes(newTree)
 } else {
@@ -114,7 +114,7 @@ if change != nil {
 }
 ```
 
-Mark elements for tracking with `.Dynamic("key")`. The Differ only tracks **outermost** keyed elements - if a parent and child are both keyed, only the parent is tracked.
+Mark elements for tracking with `.Dynamic("key")`. Both engines track nested keys. Content-only changes target the affected child; additions, removals and reorders inside a Dynamic container patch that container. A parent patch covers its descendants, so overlapping patches are never emitted. Moves between containers patch their shared keyed ancestor to preserve DOM identity. A full render is required when no keyed container covers the change.
 
 ```go
 div.New(
@@ -153,9 +153,8 @@ The encoding is opaque - callers must not interpret or manipulate the bytes. `Ex
 ### DiffKey (targeted single-key diff)
 
 When you know exactly which key changed, `DiffKey` re-renders and
-diffs only that key against the stored snapshot. The rest of the
-tree is untouched. Over 1,000x faster than a full `Diff` for
-targeting one key out of many.
+diffs the supplied subtree against its stored snapshot without
+evaluating the rest of the tree.
 
 ```go
 patch := differ.DiffKey("count", span.Textf("Count: %d", newCount).Dynamic("count"))
@@ -164,8 +163,10 @@ if patch != nil {
 }
 ```
 
-`DiffKey` updates the snapshot for the targeted key, so subsequent
-`Diff` calls see the new content. Other keys are unaffected.
+`DiffKey` refreshes nested snapshots and splices the new bytes into
+enclosing snapshots, so subsequent diffs compare against the content
+already sent to the client. Unrelated regions are unaffected. The
+Memoiser also invalidates enclosing versions after a targeted change.
 
 ### Memoiser
 

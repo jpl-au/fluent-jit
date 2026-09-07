@@ -75,8 +75,11 @@
 //   - You have many keyed elements but few change on each update
 //
 // Both support DiffKey for targeted single-key diffs when you know
-// exactly which element changed. DiffKey is over 1,000x faster than a
-// full Diff for targeting one key out of many.
+// exactly which element changed. DiffKey renders that subtree and
+// updates nested and enclosing snapshots without rendering unrelated regions.
+// Both engines select non-overlapping patches: nested membership changes
+// target their enclosing Dynamic container. Moves between containers target
+// a shared keyed ancestor; a full render is required when none covers the change.
 //
 // Use one or the other per session, not both. They maintain independent
 // snapshot state and mixing them produces incorrect diffs.

@@ -2,10 +2,8 @@ package jit
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"sync"
 
@@ -21,11 +19,6 @@ var ErrDuplicateKey = fmt.Errorf("duplicate dynamic key in render tree")
 // ErrInvalidKey is returned when a dynamic key contains whitespace. A key
 // renders as the element's id, which cannot contain whitespace.
 var ErrInvalidKey = fmt.Errorf("dynamic key contains whitespace")
-
-// exportVersion is the first byte of every Export blob. Import rejects
-// data whose version it does not understand, so the encoding can evolve
-// without silently misreading old blobs. Bump it when the layout changes.
-const exportVersion = 1
 
 // SnapshotHint is the initial capacity hint in bytes for snapshot buffers.
 // Most keyed elements render to small HTML fragments, so 128 bytes avoids
@@ -53,7 +46,7 @@ type Patch struct {
 type StructuralChange struct {
 	Added     []string // keys present in the new tree but not the old
 	Removed   []string // keys present in the old tree but not the new
-	Reordered bool     // same keys, different order
+	Reordered bool     // keys reordered or moved between outermost containers
 }
 
 // String returns a human-readable description of the change,
@@ -85,224 +78,115 @@ func quotedKeys(keys []string) string {
 	return "keys " + strings.Join(quoted, ", ")
 }
 
-// Differ tracks rendered output of keyed dynamic nodes across renders and
-// produces targeted patches when their content changes.
-//
-// Each session should own its own Differ - they are not shared across sessions.
-// The typical lifecycle is:
-//
-//  1. Render() on initial page load - returns full HTML, stores snapshots
-//  2. Diff() after each state change - returns patches for changed elements
-//  3. If Diff returns a *StructuralChange, call Render() again for a full re-render
-//
-// Snapshot data can be serialised for external storage via [Differ.Export],
-// restored with [Differ.Import], and freed with [Differ.Clear]. This
-// supports offloading disconnected session data to reduce memory usage.
+// Differ tracks the HTML and nesting of Dynamic regions in one session.
+// Render seeds its snapshots; Diff compares subsequent trees; DiffKey updates
+// a known region directly. Export/Import persist the complete nested baseline.
 type Differ struct {
-	mu        sync.Mutex
-	snapshots map[string]*bytes.Buffer
-	order     []string // outermost key order for reorder detection
-	seeded    bool
+	mu   sync.Mutex
+	tree regionTree
 }
 
-// NewDiffer creates a new Differ instance.
-func NewDiffer() *Differ {
-	return &Differ{
-		snapshots: make(map[string]*bytes.Buffer),
-	}
-}
+// NewDiffer creates an empty Differ ready for use.
+func NewDiffer() *Differ { return &Differ{tree: regionTree{}} }
 
-// Render writes the full HTML for the tree to w and stores snapshots
-// of all keyed dynamic nodes. Use this for the initial page load and
-// after structural changes detected by Diff. Write errors are
-// discarded - use WriteTo to observe them.
-//
-// The tree renders exactly once: the walk writes the page HTML and
-// captures each keyed region as a byte range of that output. Closures
-// run a single time and snapshots are always byte-identical to the
-// page the client received, even for closures that are not
-// deterministic.
-func (d *Differ) Render(root node.Node, w io.Writer) {
-	_, _ = d.WriteTo(root, w)
-}
+// Render writes the full page and seeds snapshots in a single rendering pass.
+// Write errors are discarded; use WriteTo to observe them.
+func (d *Differ) Render(root node.Node, w io.Writer) { _, _ = d.WriteTo(root, w) }
 
-// WriteTo renders the full HTML for the tree to w and stores
-// snapshots, returning the byte count and any write error. This is
-// the render path for network writers, where the error is the signal
-// that the client has gone.
+// WriteTo renders and seeds snapshots, returning the byte count and write error.
 func (d *Differ) WriteTo(root node.Node, w io.Writer) (int64, error) {
 	page := fluent.NewBuffer()
-	d.seedTracked(root, page)
+	d.seed(root, page)
 	n, err := page.WriteTo(w)
 	fluent.PutBuffer(page)
 	return n, err
 }
 
-// RenderBytes returns the full HTML for the tree as a byte slice and
-// stores snapshots. Use it where no writer is involved.
+// RenderBytes returns the full page and seeds snapshots from those same bytes.
 func (d *Differ) RenderBytes(root node.Node) []byte {
 	var page bytes.Buffer
-	d.seedTracked(root, &page)
+	d.seed(root, &page)
 	return page.Bytes()
 }
 
-// seedTracked resets the differ's state and renders the tree once into
-// page, capturing a snapshot for every keyed region along the way.
-func (d *Differ) seedTracked(root node.Node, page *bytes.Buffer) {
+func (d *Differ) seed(root node.Node, page *bytes.Buffer) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
-	// Return old buffers to the pool before collecting new snapshots.
-	d.returnBuffers()
-	d.snapshots = make(map[string]*bytes.Buffer)
-	d.order = nil
-
-	renderTracked(root, page, d.snapshots, &d.order)
-	d.seeded = true
+	w := newRegionRenderer(nil, nil)
+	w.walk(root, page, nil, "", memoVersion{}, false)
+	d.tree.releaseExcept(nil)
+	d.tree = w.next
+	d.tree.seeded = true
 }
 
-// trackedKey returns n's Dynamic tracking key, or "" when the node is
-// untracked.
+// Diff compares Dynamic regions with the previous render. An empty, non-nil
+// patch slice means nothing changed; (nil, nil) means Render has not been called.
+// Nested changes patch their enclosing container. Moves between containers
+// patch a shared ancestor to preserve DOM identity. A StructuralChange means
+// no keyed container covers the change; it leaves the baseline intact and
+// requires a fresh Render.
+func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.tree.seeded {
+		return nil, nil
+	}
+	w := newRegionRenderer(&d.tree, nil)
+	w.walk(root, nil, nil, "", memoVersion{}, false)
+	return d.tree.diff(w.next)
+}
+
+// DiffKey renders just the supplied region, bypassing a full tree walk. It
+// updates descendant snapshots and splices the new bytes into its ancestors,
+// leaving unrelated regions untouched. Returns nil when the HTML is unchanged.
+// The key is explicit: the subtree's outer node need not carry Dynamic.
+func (d *Differ) DiffKey(key string, subtree node.Node) *Patch {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.tree.diffKey(key, subtree)
+}
+
+// Export returns an opaque snapshot blob, or nil before Render. It includes
+// the region hierarchy needed to resume nested updates after Import.
+func (d *Differ) Export() []byte {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.tree.export()
+}
+
+// Import restores an Export blob and marks the Differ seeded. An import error
+// leaves the current baseline intact.
+func (d *Differ) Import(data []byte) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	tree, err := decodeRegions(data)
+	if err != nil {
+		return err
+	}
+	d.tree.releaseExcept(nil)
+	d.tree = tree
+	return nil
+}
+
+// Clear releases pooled snapshot buffers and resets the Differ to unseeded.
+func (d *Differ) Clear() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tree.releaseExcept(nil)
+	d.tree = regionTree{}
+}
+
+// Validate checks for duplicate keys and whitespace in Dynamic ids. The walk
+// evaluates Func closures; use it in tests or at startup, not on every update.
+func (d *Differ) Validate(root node.Node) error {
+	return validateKeys(root, make(map[string]bool))
+}
+
 func trackedKey(n node.Node) string {
 	if d, ok := n.(node.Dynamic); ok {
 		return d.DynamicKey()
 	}
 	return ""
-}
-
-// renderTracked renders n into page exactly once while capturing every
-// keyed Dynamic region as a snapshot copied from the page bytes.
-//
-// Keys are recorded in pre-order (parent before children), and a
-// nested keyed region is captured from the same bytes as its parent -
-// nothing renders twice.
-func renderTracked(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.Buffer, order *[]string) {
-	key := trackedKey(n)
-	if key != "" {
-		*order = append(*order, key)
-	}
-	start := page.Len()
-
-	renderBody(n, page, snapshots, order)
-
-	if key != "" {
-		buf := fluent.NewBuffer(page.Len() - start)
-		buf.Write(page.Bytes()[start:page.Len()])
-		// A duplicate key is invalid input, but the buffer it already
-		// holds must go back to the pool before being overwritten.
-		if prior, ok := snapshots[key]; ok {
-			fluent.PutBuffer(prior)
-		}
-		snapshots[key] = buf
-	}
-}
-
-// renderBody writes n's rendered form into page. Elements render
-// decomposed - open tag, children, close tag - which the generated
-// element code guarantees is byte-identical to RenderBuilder
-// (RenderBuilder is defined as exactly that sequence). Containers
-// without markup of their own (conditionals, function and memoised
-// nodes) contribute their children via Nodes(). Children recurse
-// through renderTracked so nested keyed regions are captured along the
-// way.
-//
-// A container whose Nodes() is non-empty evaluates its closure once,
-// here. A container whose closure returns nil is indistinguishable from
-// a leaf by len(Nodes()), so it falls through to RenderBuilder, which
-// evaluates the closure a second time - both times rendering nothing.
-// The double evaluation is harmless because closures are contractually
-// cheap, deterministic and side-effect-free (the render/walk coherence
-// this walk relies on rests on that determinism, enforced by the
-// dev-mode StrictMode detector, not on this walk's structure).
-func renderBody(n node.Node, page *bytes.Buffer, snapshots map[string]*bytes.Buffer, order *[]string) {
-	if el, ok := n.(node.Element); ok {
-		el.RenderOpen(page)
-		for _, child := range n.Nodes() {
-			if child != nil {
-				renderTracked(child, page, snapshots, order)
-			}
-		}
-		el.RenderClose(page)
-		return
-	}
-	if children := n.Nodes(); len(children) > 0 {
-		for _, child := range children {
-			if child != nil {
-				renderTracked(child, page, snapshots, order)
-			}
-		}
-		return
-	}
-	n.RenderBuilder(page)
-}
-
-// Diff compares the new tree against stored snapshots and returns
-// targeted patches for any keyed dynamic nodes whose content changed.
-//
-// Returns (patches, nil) when all keys match between renders.
-// The patches slice is nil if nothing changed.
-//
-// Returns (nil, *StructuralChange) when keys were added, removed, or
-// reordered - the caller should use Render for a full re-render and
-// can use the StructuralChange for diagnostics.
-//
-// Returns (nil, nil) if Render has not been called yet.
-func (d *Differ) Diff(root node.Node) ([]Patch, *StructuralChange) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if !d.seeded {
-		return nil, nil
-	}
-
-	current := make(map[string]*bytes.Buffer, len(d.snapshots))
-	currentOrder := make([]string, 0, len(d.order))
-	collectTracked(root, current, &currentOrder)
-
-	// Structural change - keys were added, removed, or reordered.
-	// Comparing the ordered slices catches all three cases in one check.
-	if !slices.Equal(d.order, currentOrder) {
-		for _, buf := range current {
-			fluent.PutBuffer(buf)
-		}
-		return nil, describeChange(d.order, currentOrder)
-	}
-
-	// Compare each keyed element's rendered output and build patches.
-	// Unchanged keys reuse the previous buffer (returned to pool
-	// immediately) to avoid keeping two copies of identical content.
-	// Initialise as non-nil so callers can distinguish "nothing
-	// changed" (empty slice) from "unseeded" (nil).
-	//
-	// Duplicate keys are invalid input (see Validate) but must not
-	// corrupt the buffer pool: processing the same key twice would
-	// return a buffer to the pool while it is still referenced as a
-	// snapshot, so a repeated key is skipped after its first visit.
-	patches := []Patch{}
-	seen := make(map[string]bool, len(currentOrder))
-	for _, key := range currentOrder {
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		cur := current[key]
-		prev := d.snapshots[key]
-		if bytes.Equal(cur.Bytes(), prev.Bytes()) {
-			// Unchanged - return the fresh buffer to the pool and
-			// keep the existing snapshot in place.
-			fluent.PutBuffer(cur)
-			current[key] = prev
-		} else {
-			patches = append(patches, Patch{Key: key, HTML: cur.Bytes()})
-			// Return the old buffer since it's being replaced.
-			fluent.PutBuffer(prev)
-		}
-	}
-
-	d.snapshots = current
-	d.order = currentOrder
-
-	return patches, nil
 }
 
 // describeChange compares the previous and current key orders and
@@ -342,230 +226,6 @@ func describeChange(prev, current []string) *StructuralChange {
 		Added:     added,
 		Removed:   removed,
 		Reordered: len(added) == 0 && len(removed) == 0,
-	}
-}
-
-// Validate checks a tree's dynamic keys. Keys must be unique within a
-// tree so the diff engine can track each element unambiguously, and
-// must contain no whitespace because a key renders as the element's id
-// and an id with whitespace is not a single token to the browser.
-// Returns nil if every key is valid.
-//
-// Validate walks the tree, evaluating any Func closures; validate-
-// then-render therefore evaluates closures twice. Intended for
-// startup and tests, not per-request use.
-func (d *Differ) Validate(root node.Node) error {
-	seen := make(map[string]bool)
-	return validateKeys(root, seen)
-}
-
-// DiffKey re-renders a single Dynamic key against the stored snapshot
-// and returns a patch if the content changed. Use this for targeted
-// updates where the caller knows exactly which key changed and wants
-// to avoid the cost of a full tree walk via [Differ.Diff]. For a page
-// with 50 Dynamic keys, DiffKey is over 1,000x faster than Diff.
-//
-// The snapshot for the targeted key is updated so subsequent Diff
-// calls see the new content. Other keys are not touched.
-//
-// Returns nil if the content is unchanged. Returns a patch with the
-// new HTML if the content changed or the key has no stored snapshot.
-func (d *Differ) DiffKey(key string, subtree node.Node) *Patch {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	prev := d.snapshots[key]
-
-	buf := fluent.NewBuffer(SnapshotHint)
-	subtree.RenderBuilder(buf)
-
-	if prev != nil && bytes.Equal(buf.Bytes(), prev.Bytes()) {
-		fluent.PutBuffer(buf)
-		return nil
-	}
-
-	patch := &Patch{Key: key, HTML: buf.Bytes()}
-
-	if prev != nil {
-		fluent.PutBuffer(prev)
-	}
-	d.snapshots[key] = buf
-
-	return patch
-}
-
-// returnBuffers returns all stored snapshot buffers to the pool.
-// Caller must hold d.mu.
-func (d *Differ) returnBuffers() {
-	for _, buf := range d.snapshots {
-		fluent.PutBuffer(buf)
-	}
-}
-
-// Export returns the differ's snapshot data as raw bytes suitable for
-// external storage. The differ's internal state is unchanged - call
-// Clear to release the memory after a successful save. Returns nil if
-// the differ has not been seeded.
-//
-// The encoding is an internal detail. Callers must not interpret the
-// bytes - use Import to restore them.
-func (d *Differ) Export() []byte {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if !d.seeded {
-		return nil
-	}
-
-	var buf bytes.Buffer
-	buf.WriteByte(exportVersion)
-
-	// Write snapshot count, then each key-value pair.
-	binary.Write(&buf, binary.LittleEndian, uint32(len(d.order)))
-	for _, key := range d.order {
-		binary.Write(&buf, binary.LittleEndian, uint32(len(key)))
-		buf.WriteString(key)
-		snap := d.snapshots[key]
-		binary.Write(&buf, binary.LittleEndian, uint32(snap.Len()))
-		buf.Write(snap.Bytes())
-	}
-
-	return buf.Bytes()
-}
-
-// Import restores snapshot data from a prior Export call. The differ is
-// marked as seeded after a successful import, allowing Diff to compare
-// against the restored snapshots.
-func (d *Differ) Import(data []byte) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	r := bytes.NewReader(data)
-
-	version, err := r.ReadByte()
-	if err != nil {
-		return fmt.Errorf("jit: import: reading version: %w", err)
-	}
-	if version != exportVersion {
-		return fmt.Errorf("jit: import: unsupported export version %d (want %d)", version, exportVersion)
-	}
-
-	var count uint32
-	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
-		return fmt.Errorf("jit: import: reading snapshot count: %w", err)
-	}
-
-	// Corrupt data must fail with an error, not an enormous allocation.
-	// Each entry needs at least 8 bytes of length prefixes, so a count
-	// the remaining data cannot hold is rejected before preallocating.
-	if int64(count) > int64(r.Len())/8 {
-		return fmt.Errorf("jit: import: snapshot count %d exceeds data size %d", count, r.Len())
-	}
-
-	snapshots := make(map[string]*bytes.Buffer, count)
-	order := make([]string, 0, count)
-
-	// returnParsed returns any buffers allocated so far back to the
-	// pool. Called on error so partial imports don't leak memory.
-	returnParsed := func() {
-		for _, buf := range snapshots {
-			fluent.PutBuffer(buf)
-		}
-	}
-
-	for range count {
-		var keyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
-			returnParsed()
-			return fmt.Errorf("jit: import: reading key length: %w", err)
-		}
-		// Reject lengths the remaining data cannot hold before
-		// allocating for them - see the count check above.
-		if int64(keyLen) > int64(r.Len()) {
-			returnParsed()
-			return fmt.Errorf("jit: import: key length %d exceeds remaining data %d", keyLen, r.Len())
-		}
-		keyBytes := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, keyBytes); err != nil {
-			returnParsed()
-			return fmt.Errorf("jit: import: reading key: %w", err)
-		}
-		key := string(keyBytes)
-
-		var valLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &valLen); err != nil {
-			returnParsed()
-			return fmt.Errorf("jit: import: reading value length: %w", err)
-		}
-		if int64(valLen) > int64(r.Len()) {
-			returnParsed()
-			return fmt.Errorf("jit: import: value length %d exceeds remaining data %d", valLen, r.Len())
-		}
-
-		buf := fluent.NewBuffer(int(valLen))
-		if _, err := io.CopyN(buf, r, int64(valLen)); err != nil {
-			fluent.PutBuffer(buf)
-			returnParsed()
-			return fmt.Errorf("jit: import: reading value: %w", err)
-		}
-
-		snapshots[key] = buf
-		order = append(order, key)
-	}
-
-	// Release any existing buffers before replacing.
-	d.returnBuffers()
-	d.snapshots = snapshots
-	d.order = order
-	d.seeded = true
-	return nil
-}
-
-// Clear releases the differ's snapshot buffers back to the pool and
-// resets it to an unseeded state. Call this after a successful
-// DiffStore.Save to free the memory that Export copied out.
-func (d *Differ) Clear() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.returnBuffers()
-	d.snapshots = make(map[string]*bytes.Buffer)
-	d.order = nil
-	d.seeded = false
-}
-
-// collectTracked walks the tree for Diff. Outside keyed regions
-// nothing renders - the walk only descends looking for keys. At a
-// keyed region the subtree renders exactly once into the region's
-// snapshot buffer, with nested keyed regions captured as copies of
-// that buffer's byte ranges. An earlier walk rendered a nested region
-// twice (inside its parent's snapshot and again for its own) and ran
-// closures inside keyed regions twice (once rendering, once
-// materialising Nodes to keep searching for keys).
-//
-// Keys are appended to order in tree-walk order so the caller can
-// detect reordering as a structural change. Nested Dynamic keys are
-// tracked independently of their parents: a patch to a child key via
-// sess.Patch must work even when the parent's content as a whole has
-// not changed, and a child key absent from the order slice would be
-// silently skipped by subsequent full Diffs.
-func collectTracked(n node.Node, snapshots map[string]*bytes.Buffer, order *[]string) {
-	if key := trackedKey(n); key != "" {
-		*order = append(*order, key)
-		buf := fluent.NewBuffer(SnapshotHint)
-		renderBody(n, buf, snapshots, order)
-		// A duplicate key is invalid input, but the buffer it already
-		// holds must go back to the pool before being overwritten.
-		if prior, ok := snapshots[key]; ok {
-			fluent.PutBuffer(prior)
-		}
-		snapshots[key] = buf
-		return
-	}
-	for _, child := range n.Nodes() {
-		if child != nil {
-			collectTracked(child, snapshots, order)
-		}
 	}
 }
 

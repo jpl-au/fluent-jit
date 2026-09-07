@@ -11,9 +11,11 @@ standalone for any use case that needs incremental HTML updates.
 3. After state changes, call `Diff()` with the new tree
 4. Receive patches for only the elements that changed
 
-The Differ only tracks **outermost** keyed elements. If a parent and
-child are both keyed, only the parent is tracked - changes to the
-child are naturally captured in the parent's rendered output.
+The Differ tracks every keyed element, including nested keys. When
+only a child's content changes, it returns a child patch. If the
+parent's attributes, unkeyed content or child membership change, it
+returns a parent patch covering that whole subtree. A patch list
+never includes both an ancestor and its descendant.
 
 ## Basic usage
 
@@ -27,7 +29,7 @@ html := differ.RenderBytes(tree)
 patches, change := differ.Diff(newTree)
 
 if change != nil {
-    // Structural change - keys were added, removed, or reordered
+    // Outermost keys were added, removed, or reordered
     // Full re-render is needed
     html = differ.RenderBytes(newTree)
 } else {
@@ -58,8 +60,17 @@ as the element's `id` attribute.
 
 ## Structural changes
 
-When `Diff()` returns a non-nil `*StructuralChange`, keys were added,
-removed, or reordered. The change describes what happened:
+Adding, removing or reordering keys inside a surviving Dynamic
+container produces an ordinary patch for that container. For example,
+adding a keyed row inside `.Dynamic("items")` patches `items`.
+
+When `Diff()` returns a non-nil `*StructuralChange`, outermost keys
+were added, removed or reordered, so there is no enclosing Dynamic
+container to target. Moving an existing key between containers patches
+their nearest shared Dynamic ancestor, keeping the move within one DOM
+morph so the element retains its identity. Without such an ancestor,
+that move also returns a StructuralChange. The change describes what
+happened:
 
 ```go
 patches, change := differ.Diff(newTree)
@@ -73,18 +84,18 @@ if change != nil {
 
 Fields on `*StructuralChange`:
 
-- `Added` - keys in the new tree not in the old
-- `Removed` - keys in the old tree not in the new
-- `Reordered` - same keys but different order
+- `Added` - outermost keys in the new tree not in the old
+- `Removed` - outermost keys in the old tree not in the new
+- `Reordered` - keys reordered, or moved between outermost containers
 
-After a structural change, call `Render(tree, w)` or `RenderBytes(tree)` to re-establish the
-baseline. Patches from `Diff()` are not reliable when keys have
-changed.
+After a structural change, call `Render(tree, w)` or `RenderBytes(tree)`
+to re-establish the baseline. That `Diff()` returns no patches and
+leaves the previous baseline intact.
 
 ## DiffKey - targeted single-key diffs
 
 When you know exactly which key changed, `DiffKey` re-renders and
-diffs only that key. The rest of the tree is untouched.
+diffs the supplied subtree without evaluating the rest of the tree.
 
 ```go
 patch := differ.DiffKey("count", span.Textf("Count: %d", newCount).Dynamic("count"))
@@ -93,12 +104,14 @@ if patch != nil {
 }
 ```
 
-`DiffKey` updates the stored snapshot for the targeted key, so
-subsequent `Diff()` calls see the new content. Other keys are
-unaffected.
+`DiffKey` refreshes the targeted key and all its nested snapshots,
+then splices the replacement bytes into the enclosing snapshots.
+Subsequent `Diff()` and `DiffKey()` calls therefore compare with the
+HTML already sent to the client. Unrelated regions are unaffected.
 
 This is significantly faster than a full `Diff` when targeting one key
-out of many - it avoids walking the entire tree.
+out of many. Work is proportional to rendering the supplied subtree
+and copying its enclosing HTML, rather than rendering the full page.
 
 ## Validation
 
@@ -134,18 +147,23 @@ differ.Clear()
 
 `Export` is non-destructive - the Differ's state is unchanged after
 export. The encoding is opaque; callers must not interpret or
-manipulate the bytes.
+manipulate the bytes. Snapshots include nesting and child byte ranges,
+so nested targeted updates remain correct after import.
+
+Failed imports leave the existing baseline intact.
 
 ## Pooled buffers
 
 Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid
-allocation overhead. Old snapshots are returned to the pool before new
-ones are collected. Call `Clear()` when the Differ is no longer needed
+allocation overhead. Superseded snapshots are returned after the new
+baseline is accepted. Call `Clear()` when the Differ is no longer needed
 to release buffers.
 
 ## Key order
 
-The Differ tracks keys in tree-walk order, not just as a set.
-Reordering keyed elements (e.g. sorting a list) triggers a structural
-change, even when the same keys are present. This is intentional -
-reordered DOM elements need a full re-render, not patches.
+The Differ preserves the order of keys within each container.
+Reordering a nested list patches its Dynamic container. Reordering
+outermost keys requires a full render because no keyed container
+covers the move. Moves between containers also require a shared keyed
+ancestor; otherwise they need a full render. Both engines return patches in
+tree order.

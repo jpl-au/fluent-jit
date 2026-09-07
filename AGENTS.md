@@ -385,7 +385,7 @@ html := differ.RenderBytes(tree)
 // 2. After state change - compare against stored snapshots
 patches, change := differ.Diff(newTree)
 
-// 3. If change is non-nil, keys were added/removed/reordered
+// 3. If change is non-nil, outermost keys were added/removed/reordered
 if change != nil {
     html = differ.RenderBytes(newTree)  // Re-render + reset baseline
     // change.String() → "key 'sidebar' added"
@@ -404,9 +404,9 @@ differ.Import(data)       // Restore from prior export
 
 ### Key concepts
 
-**Outermost key tracking.** `collectSnapshots` walks the tree depth-first but stops recursing once a keyed node is found. If a parent and child are both keyed, only the parent is tracked - a change to the child is naturally captured in the parent's rendered output.
+**Nested key tracking.** Both engines track every Dynamic region and its immediate keyed children. Content-only changes target the affected children. Changes to a container's own HTML or child membership target that container and suppress descendant patches.
 
-**Key order detection.** The Differ tracks keys in tree-walk order, not just as a set. This means reordering keyed elements (e.g. sorting a list) triggers a structural change, even when the same keys are present.
+**Key order detection.** Each container retains its child key order. Nested additions, removals and reorders produce a container patch. Moves between containers target their shared keyed ancestor to preserve DOM identity. Outermost membership/order changes and moves without a shared keyed ancestor return StructuralChange and require a full render. Returned patches follow tree order.
 
 **Structural change diagnostics.** When `Diff()` returns a `*StructuralChange`, it reports exactly what happened:
 
@@ -417,14 +417,14 @@ differ.Import(data)       // Restore from prior export
 
 A live-update layer can use this to log actionable diagnostics so developers know when and why a root morph was triggered.
 
-**Pooled buffers.** Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid allocation overhead. Old snapshots are returned to the pool before new ones are collected.
+**Pooled buffers.** Snapshots use `fluent.NewBuffer` / `fluent.PutBuffer` to avoid allocation overhead. Superseded snapshots are returned to the pool after the new baseline is accepted.
 
 **Validation.** `Differ.Validate(tree)` checks for duplicate dynamic keys. Duplicate keys cause the diff engine to lose track of elements - only the last one visited would be stored. Returns `ErrDuplicateKey` for programmatic checking.
 
 **Snapshot persistence.** Three methods support serialising and restoring Differ state, for offloading disconnected-session snapshots to external storage:
 
 - `Export() []byte` - serialises all snapshot data into an opaque byte slice. Returns nil if the Differ has not been seeded (no prior `Render`). Non-destructive - the Differ's state is unchanged after export.
-- `Import([]byte) error` - restores snapshots from bytes previously returned by `Export`. The internal encoding is a binary format using length-prefixed keys and values. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
+- `Import([]byte) error` - restores snapshots from bytes previously returned by `Export`. The opaque encoding contains HTML, nesting, child byte ranges and memoisation versions. Failed imports preserve the current baseline. On error, `Import` cleans up any already-allocated buffers so nothing leaks back to the pool.
 - `Clear()` - releases all snapshot buffers back to `fluent.PutBuffer` and resets the Differ to its zero state. Useful after exporting when the Differ is no longer needed.
 
 ### DiffKey (targeted single-key diffs)
@@ -441,8 +441,10 @@ if patch != nil {
 }
 ```
 
-DiffKey updates the stored snapshot for the targeted key so
-subsequent full Diff calls see the new content. It does not check
+DiffKey refreshes the target and nested snapshots, and splices the new
+bytes into enclosing snapshots. Subsequent diffs compare against the
+content already sent to the client. Enclosing memoisation versions are
+invalidated after a targeted change; unrelated regions retain their hits. It does not check
 memoisation versions (on the Memoiser) because the developer is
 explicitly targeting this key.
 
@@ -473,9 +475,12 @@ A region gets its version one of two ways:
   whose closure is skipped on a hit. Use this form when building the
   subtree is itself expensive, so construction is deferred too.
 
-The version is compared with `==`. Use a counter, hash, timestamp, or
-any comparable value where equality means "the subtree has not
-changed". Slices, maps, and functions are not comparable and panic.
+Versions are converted to strings using scalar formatting, with
+`fmt.Sprint` for other types. Prefer counters or stable string keys
+that fully identify the region's content. A parent version governs its
+entire subtree: a parent hit skips child version checks. Leave the
+parent unversioned when children should update independently. A keyed
+child's chained version applies to that child, never to its parent.
 
 ```go
 memoiser := jit.NewMemoiser()
@@ -545,8 +550,7 @@ func render(s State) node.Node {
 
 Dynamic regions with no version (no chained `.Memoise`, and no
 `jit.Memoise` child or ancestor) are always re-rendered (treated as a
-miss). The Memoiser does not fall back to content-based diffing for
-non-memoised nodes.
+miss), then compared with their previous HTML snapshots.
 
 ### Shared regions (across sessions)
 
@@ -631,6 +635,8 @@ fluent-jit/
 ├── flatten.go   # Flattener: static content pre-rendering
 ├── diff.go      # Differ: keyed element tracking and targeted patches
 ├── memoise.go   # Memoiser: version-aware subtree skipping, Stats, DiffKey
+├── regions.go   # Shared nested snapshots, rendering and patch selection
+├── regions_codec.go # Snapshot hierarchy persistence and validation
 ├── memonode.go  # Memoise, Shared node constructors; Memoised interface
 ├── shared.go    # Process-global shared-fragment cache and tuning
 ├── global.go    # Global API: sync.Map registries and helpers
