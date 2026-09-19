@@ -2,6 +2,7 @@ package jit
 
 import (
 	"bytes"
+	"maps"
 	"slices"
 	"sync"
 
@@ -366,9 +367,7 @@ func (t *regionTree) diffKey(key string, subtree node.Node) *Patch {
 		t.regions = make(map[string]*region)
 	}
 	t.regions[key] = r
-	for k, current := range w.next.regions {
-		t.regions[k] = current
-	}
+	maps.Copy(t.regions, w.next.regions)
 	for k, parent := range w.next.parents {
 		t.setParent(k, parent)
 	}

@@ -17,9 +17,9 @@ import (
 // - Cold path (sampling): mutex for statistical calculations during startup.
 type AdaptiveSizer struct {
 	// Atomic fields - read on every render without locking
-	baseline int64 // current optimal buffer size (atomic)
-	active   int64 // 1 if sampling, 0 if using baseline (atomic)
-	variance int64 // variance threshold percentage, e.g. 20 for 20% (atomic - read by check on every baseline-phase render while Configure may write it)
+	baseline atomic.Int64 // current optimal buffer size (atomic)
+	active   atomic.Int64 // 1 if sampling, 0 if using baseline (atomic)
+	variance int64        // variance threshold percentage, e.g. 20 for 20% (atomic - read by check on every baseline-phase render while Configure may write it)
 
 	// Mutex-protected fields - only accessed during phase transitions
 	mu           sync.Mutex
@@ -41,7 +41,7 @@ func NewAdaptiveSizer() *AdaptiveSizer {
 		variance:     20,
 		growthFactor: 115,
 	}
-	atomic.StoreInt64(&as.active, 1) // start in sampling phase
+	as.active.Store(1) // start in sampling phase
 	return as
 }
 
@@ -65,21 +65,21 @@ func (as *AdaptiveSizer) Configure(max int, variance, growthFactor int) {
 	// Stale statistics from previous configuration would skew the new baseline
 	as.sum = 0
 	as.count = 0
-	atomic.StoreInt64(&as.baseline, 0)
-	atomic.StoreInt64(&as.active, 1) // restart sampling
+	as.baseline.Store(0)
+	as.active.Store(1) // restart sampling
 }
 
 // GetBaseline returns the current optimal buffer size.
 // This is the hot path - called on every render - so it uses a lock-free
 // atomic read to avoid contention.
 func (as *AdaptiveSizer) GetBaseline() int {
-	return int(atomic.LoadInt64(&as.baseline))
+	return int(as.baseline.Load())
 }
 
 // Active returns true if currently in sampling phase.
 // Lock-free read for performance.
 func (as *AdaptiveSizer) Active() bool {
-	return atomic.LoadInt64(&as.active) == 1
+	return as.active.Load() == 1
 }
 
 // Reset clears all statistics and restarts sampling.
@@ -90,8 +90,8 @@ func (as *AdaptiveSizer) Reset() {
 
 	as.sum = 0
 	as.count = 0
-	atomic.StoreInt64(&as.baseline, 0)
-	atomic.StoreInt64(&as.active, 1) // return to sampling
+	as.baseline.Store(0)
+	as.active.Store(1) // return to sampling
 }
 
 // UpdateStats updates sizing statistics based on actual render size.
@@ -114,7 +114,7 @@ func (as *AdaptiveSizer) sample(size int) {
 
 	// Another goroutine may have completed sampling between the Active() check
 	// and acquiring the lock - re-check to avoid corrupting a fresh baseline
-	if atomic.LoadInt64(&as.active) == 0 {
+	if as.active.Load() == 0 {
 		return
 	}
 
@@ -128,8 +128,8 @@ func (as *AdaptiveSizer) sample(size int) {
 		average := as.sum / as.count
 		newBaseline := (average * as.growthFactor) / 100
 
-		atomic.StoreInt64(&as.baseline, int64(newBaseline))
-		atomic.StoreInt64(&as.active, 0) // switch to baseline phase
+		as.baseline.Store(int64(newBaseline))
+		as.active.Store(0) // switch to baseline phase
 	}
 }
 
@@ -150,7 +150,7 @@ func (as *AdaptiveSizer) check(size int) {
 		as.mu.Lock()
 		as.sum = size // seed new sampling with the value that triggered the change
 		as.count = 1
-		atomic.StoreInt64(&as.active, 1) // return to sampling phase
+		as.active.Store(1) // return to sampling phase
 		as.mu.Unlock()
 	}
 }
